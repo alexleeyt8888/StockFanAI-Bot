@@ -151,28 +151,9 @@ def generate_news_prompt(company_name):
     """
 
 def generate_topic_prompt (company_name, topic):
+    today = date.today()
     # create a dictionary mapping topic to the list of topic examples.
     topic_to_list = {
-        1: """Business model evolution, Founding year, location, and founders, 
-              Early products or services, Major funding rounds or IPO, Acquisitions, 
-              partnerships, or divestitures, Strategic pivots or rebrandings, 
-              Recent milestones (new CEO, geographic expansion)""",
-        2: '''Core offerings and adjacent R&D projects, Industry classification (e.g., “semiconductors”), 
-              Total addressable market (TAM) with sources, Segment growth rates, Emerging trends shaping the market''',
-        3: '''Revenue per major product or service, Revenue by region (Americas, EMEA, APAC), YoY shifts in those percentages  
-              Recurring vs. one-time revenue mix, Seasonality or quarter-to-quarter patterns, Effect of recent launches on mix''',
-        4: '''Customer segments and distribution channels, Key accounts and their impact, Recent wins or losses  
-              Satisfaction, retention, and churn metrics, Acquisition cost and lifetime value''',
-        5: '''Direct and indirect competitors, Feature, price, and distribution comparisons, moats or differentiators, 
-              Competitors' vulnerabilities, Recent competitor moves (M&A, new products), Disruption risks (startups, substitutes)''',
-        6: '''Revenue growth trends, Gross and net margins, Cash flow dynamics, Debt ratios''',
-        7: '''Upcoming product or roadmap milestones, Macro trends (interest rates, consumer spending), Analyst estimate revisions or consensus targets,
-              Catalysts (earnings beats, partnerships), Capital allocation (buybacks, dividends), Regulatory or geopolitical tailwinds''',
-        8: '''Competitive pressure or price wars, Supply-chain or cost headwinds, Regulatory, legal, or antitrust scrutiny,
-              Currency or geopolitical exposure, Execution risks on new initiatives, Valuation or sentiment shifts'''
-    }
-    # create a dictionary mapping topic to the list of amazon response examples.
-    topic_to_example = {
         1: """Business model evolution, Founding year, location, and founders, 
               Early products or services, Major funding rounds or IPO, Acquisitions, 
               partnerships, or divestitures, Strategic pivots or rebrandings, 
@@ -194,9 +175,9 @@ def generate_topic_prompt (company_name, topic):
 
     return f"""
         You are a knowledgeable financial senior analyst with expertise in company analysis. 
-        You have access to up-to-date financial data and news. You are also able to access the latest financial reports and news.
+        Today is {today}. Use up-to-date financial data, reports, and news to write your response.
         Write a cohesive paragraph in full sentences that is ~ 250-500 words about the {topic.label} of {company_name}.
-        (Some topics or ideas you can talk about, but are not limited to is: {topic_to_list[topic.code]}).
+        (Some topics or ideas you can talk about, but are not limited to are: {topic_to_list[topic.code]}).
         While writing this analysis, use financial terms percisely and provide valuation context. 
         Lastly, end your response with a brief bullet-pointed summary of the in-depth response that summarizes
         extracts the main points you brought up.
