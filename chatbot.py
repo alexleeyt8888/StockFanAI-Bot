@@ -28,85 +28,6 @@ def setup_api():
         raise ValueError("Please set OPENROUTER_API_KEY in your .env file")
     return api_key
 
-def generate_analysis_prompt(company_name, recent_news):
-    return f"""You are a senior investor with deep domain expertise. 
-    Provide specific, factual, up-to-date, and in-depth analysis of {company_name}. 
-    For each topic below, write a cohesive paragraph in full sentences that should be around 1000-1500 words. 
-    While writing this analysis, use financial terms percisely and provide valuation context. 
-    If a brief bullet list would clarify key items (e.g., milestones, top product lines), 
-    append it at the end of that paragraph. However, these don't count towards the above word count.
-    Feel free to add any other relevant details you find on each of these topics if the list below isn't enough
-    Lastly, write in a tone that is suitable for your audience of stock investors:
-
-1. History  
-   • Business model evolution  
-   • Founding year, location, and founders  
-   • Early products or services  
-   • Major funding rounds or IPO  
-   • Acquisitions, partnerships, or divestitures  
-   • Strategic pivots or rebrandings  
-   • Recent milestones (new CEO, geographic expansion)
-
-2. Products, Industry & Market Size  
-   • Core offerings and adjacent R&D projects  
-   • Industry classification (e.g., “semiconductors”)  
-   • Total addressable market (TAM) with sources  
-   • Segment growth rates  
-   • Emerging trends shaping the market
-
-3. Revenue Breakdown (by Product & Geography)  
-   • Revenue per major product or service  
-   • Revenue by region (Americas, EMEA, APAC)  
-   • YoY shifts in those percentages  
-   • Recurring vs. one-time revenue mix  
-   • Seasonality or quarter-to-quarter patterns  
-   • Effect of recent launches on mix
-
-4. Customers  
-   • Customer segments and distribution channels  
-   • Key accounts and their impact  
-   • Recent wins or losses  
-   • Satisfaction, retention, and churn metrics  
-   • Acquisition cost and lifetime value
-
-5. Competitive Landscape  
-   • Direct and indirect competitors  
-   • Feature, price, and distribution comparisons  
-   • {company_name}'s moats or differentiators  
-   • Competitors' vulnerabilities  
-   • Recent competitor moves (M&A, new products)  
-   • Disruption risks (startups, substitutes)
-
-6. Financial Performance (2021-2025)  
-   • Revenue growth trends  
-   • Gross and net margins  
-   • Cash flow dynamics  
-   • Debt ratios
-
-7. Key Stock Drivers (Next 12 Months)  
-   • Upcoming product or roadmap milestones  
-   • Macro trends (interest rates, consumer spending)  
-   • Analyst estimate revisions or consensus targets  
-   • Catalysts (earnings beats, partnerships)  
-   • Capital allocation (buybacks, dividends)  
-   • Regulatory or geopolitical tailwinds
-
-8. Investment Risks  
-   • Competitive pressure or price wars  
-   • Supply-chain or cost headwinds  
-   • Regulatory, legal, or antitrust scrutiny  
-   • Currency or geopolitical exposure  
-   • Execution risks on new initiatives  
-   • Valuation or sentiment shifts
-
-For each of the 8 topics, please organize your response in this format:
-- Heading
-- One bullet point discussing each of the subtopics that are written above. If there is more information, you can add additionall bullet points. Make sure these bullet points are 1 sentence and discuss the main idea
-- For each bullet point, write a paragraph providing a detailed summary that goes more indepth into each of the bullet points that are the main idea. (ex. how this affects {company_name}, why this matters to {company_name}, etc.)
-
-Please end your response with "Are there any other companies you would like me to analyze?"
-"""
-
 def generate_news_prompt(company_name):
     today = date.today()
     return f"""
@@ -431,17 +352,21 @@ def analyze_company(api_key):
         
         try:
             console.print(f"\n[yellow]Analyzing {company_name}...[/yellow]")
-            # risk_prompt = generate_risk_prompt(company_name)
-            # drivers_prompt = generate_key_drivers_prompt(company_name)
-            # risk_analysis = generate_response(api_key, risk_prompt)
-            # drivers_analysis = generate_response(api_key, drivers_prompt)
 
             history_prompt = generate_topic_prompt(company_name, Topic.HISTORY)
+            PIM_prompt = generate_topic_prompt(company_name, Topic.PRODUCTS_INDUSTRY_MARKETSIZE)
+            revenue_prompt = generate_topic_prompt(company_name, Topic.REVENUE_BREAKDOWN)
+            customers_prompt = generate_topic_prompt(company_name, Topic.CUSTOMERS)
+            landscape_prompt = generate_topic_prompt(company_name, Topic.COMPETITIVE_LANDSCAPE)
             fin_performance_prompt = generate_topic_prompt(company_name, Topic.FINANCIAL_PERFORMANCE)
             drivers_prompt = generate_topic_prompt(company_name, Topic.STOCK_DRIVERS)
             risk_prompt = generate_topic_prompt(company_name, Topic.INVESTMENT_RISKS)
 
             history_analysis = generate_response(api_key, history_prompt)
+            PIM_analysis = generate_response(api_key, PIM_prompt)
+            revenue_analysis = generate_response(api_key, revenue_prompt)
+            customers_analysis = generate_response(api_key, customers_prompt)
+            landscape_analysis = generate_response(api_key, landscape_prompt)        
             fin_performance_analysis = generate_response(api_key, fin_performance_prompt)
             risk_analysis = generate_response(api_key, risk_prompt)
             drivers_analysis = generate_response(api_key, drivers_prompt)
@@ -450,6 +375,22 @@ def analyze_company(api_key):
 
             console.print("\n[bold green]History[/bold green]", justify="center")
             console.print(Markdown(history_analysis))
+            console.print() 
+
+            console.print("\n[bold green]Products, Industry & Market Size[/bold green]", justify="center")
+            console.print(Markdown(PIM_analysis))
+            console.print() 
+
+            console.print("\n[bold green]Revenue Breakdown[/bold green]", justify="center")
+            console.print(Markdown(revenue_analysis))
+            console.print() 
+
+            console.print("\n[bold green]Customers[/bold green]", justify="center")
+            console.print(Markdown(customers_analysis))
+            console.print() 
+
+            console.print("\n[bold green]Competitive Landscape[/bold green]", justify="center")
+            console.print(Markdown(landscape_analysis))
             console.print() 
 
             console.print("\n[bold green]Financial Performance[/bold green]", justify="center")
