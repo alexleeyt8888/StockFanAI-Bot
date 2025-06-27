@@ -5,6 +5,7 @@ from rich.markdown import Markdown
 from dotenv import load_dotenv
 from datetime import date, datetime
 from enum import Enum
+from factcheckexplorer.factcheckexplorer import FactCheckLib
 
 console = Console()
 
@@ -79,7 +80,7 @@ def generate_topic_prompt (company_name, topic):
               Early products or services, Major funding rounds or IPO, Acquisitions, 
               partnerships, or divestitures, Strategic pivots or rebrandings, 
               Recent milestones (new CEO, geographic expansion)""",
-        2: '''Core offerings and adjacent R&D projects, Industry classification (e.g., “semiconductors”), 
+        2: '''Core offerings and adjacent R&D projects, Industry classification (e.g., "semiconductors"), 
               Total addressable market (TAM) with sources, Segment growth rates, Emerging trends shaping the market''',
         3: '''Revenue per major product or service, Revenue by region (Americas, EMEA, APAC), YoY shifts in those percentages  
               Recurring vs. one-time revenue mix, Seasonality or quarter-to-quarter patterns, Effect of recent launches on mix''',
@@ -110,7 +111,7 @@ def generate_topic_prompt (company_name, topic):
             Over the next twelve months, Amazon's share performance will be underpinned primarily by its 
             ongoing transformation into an AI-first enterprise, with Amazon Web Services (AWS) at the vanguard 
             of both top-line growth and margin expansion. AWS is set to introduce a suite of next-generation offerings—ranging 
-            from Aurora PostgreSQL version 17 and enhanced Bedrock foundation models to its quantum-compute “Ocelot” chip—that 
+            from Aurora PostgreSQL version 17 and enhanced Bedrock foundation models to its quantum-compute "Ocelot" chip—that 
             should sustain its industry-leading ~33% operating margin and drive low-teens revenue growth through mid-2026. 
             Concurrently, Amazon's retail business is embedding advanced machine-learning algorithms across warehousing, 
             last-mile delivery, and inventory forecasting, which management expects will compress fulfillment costs by 
@@ -162,7 +163,7 @@ def generate_topic_prompt (company_name, topic):
             dominance and pressure AWS to sustain above-market growth rates.
 
             Regulatory and legal scrutiny further darkens the outlook. A Federal Trade Commission lawsuit alleging the use of 
-            “dark patterns” to trick consumers into auto-renewing Prime memberships is set for a bench trial in June 2025, 
+            "dark patterns" to trick consumers into auto-renewing Prime memberships is set for a bench trial in June 2025, 
             and a broader antitrust suit accusing Amazon of abusing its marketplace monopoly will not reach trial until October 2026—risks 
             that could result in injunctive relief, fines, or mandated business-model changes.
 
@@ -181,7 +182,7 @@ def generate_topic_prompt (company_name, topic):
 
             Competitive Intensity: E-commerce undercut by Walmart, Alibaba, Temu; AWS challenged by Azure and Google Cloud.
 
-            Regulatory & Legal Scrutiny: FTC “dark patterns” trial in June 2025; broader antitrust suit trial in October 2026.
+            Regulatory & Legal Scrutiny: FTC "dark patterns" trial in June 2025; broader antitrust suit trial in October 2026.
 
             Execution Risks: High-cost projects (Project Kuiper, AI infrastructure) may under-deliver on returns.
 
@@ -206,7 +207,7 @@ def generate_key_drivers_prompt(company_name):
         Over the next twelve months, Amazon's share performance will be underpinned primarily by its 
         ongoing transformation into an AI-first enterprise, with Amazon Web Services (AWS) at the vanguard 
         of both top-line growth and margin expansion. AWS is set to introduce a suite of next-generation offerings—ranging 
-        from Aurora PostgreSQL version 17 and enhanced Bedrock foundation models to its quantum-compute “Ocelot” chip—that 
+        from Aurora PostgreSQL version 17 and enhanced Bedrock foundation models to its quantum-compute "Ocelot" chip—that 
         should sustain its industry-leading ~33% operating margin and drive low-teens revenue growth through mid-2026. 
         Concurrently, Amazon's retail business is embedding advanced machine-learning algorithms across warehousing, 
         last-mile delivery, and inventory forecasting, which management expects will compress fulfillment costs by 
@@ -271,7 +272,7 @@ def generate_risk_prompt(company_name):
             dominance and pressure AWS to sustain above-market growth rates.
 
             Regulatory and legal scrutiny further darkens the outlook. A Federal Trade Commission lawsuit alleging the use of 
-            “dark patterns” to trick consumers into auto-renewing Prime memberships is set for a bench trial in June 2025, 
+            "dark patterns" to trick consumers into auto-renewing Prime memberships is set for a bench trial in June 2025, 
             and a broader antitrust suit accusing Amazon of abusing its marketplace monopoly will not reach trial until October 2026—risks 
             that could result in injunctive relief, fines, or mandated business-model changes.
 
@@ -290,7 +291,7 @@ def generate_risk_prompt(company_name):
 
             Competitive Intensity: E-commerce undercut by Walmart, Alibaba, Temu; AWS challenged by Azure and Google Cloud.
 
-            Regulatory & Legal Scrutiny: FTC “dark patterns” trial in June 2025; broader antitrust suit trial in October 2026.
+            Regulatory & Legal Scrutiny: FTC "dark patterns" trial in June 2025; broader antitrust suit trial in October 2026.
 
             Execution Risks: High-cost projects (Project Kuiper, AI infrastructure) may under-deliver on returns.
 
@@ -306,13 +307,13 @@ def generate_response(api_key, prompt):
     }
 
     data = {
-        "model": "deepseek/deepseek-chat-v3-0324:free", 
+        "model": "deepseek/deepseek-r1-0528:free", 
         "messages": [
             {"role": "system", "content": '''
              You are a knowledgeable financial senior analyst with expertise in company analysis. 
              You have access to up-to-date financial data and news. You are also able to access the latest financial reports and news. 
              For each request, you should: Be thorough and specific with your analysis in your response
-             Include absolute dates (e.g. “QoQ growth in Q1 2025 was…”)
+             Include absolute dates (e.g. "QoQ growth in Q1 2025 was…")
              When possible reference your data sources (e.g. SEC filings, company presentations).
              Furthermore, write in a tone that is suitable for your audience of stock investors.
              Lastly, make sure everything is in paragraph form with well chosen subheadings that describe what is contained in the body.
@@ -339,6 +340,20 @@ def generate_response(api_key, prompt):
             console.print(f"[bold red]Response:[/bold red] {e.response.text}")
         return "I apologize, but I encountered an error while generating the analysis. Please try again."
 
+def fact_check_claim(claim, language="en", num_results=5):
+    """Fact-check a claim using Google's Fact Check Explorer via factcheckexplorer."""
+    try:
+        fact_check = FactCheckLib(query=claim, language=language, num_results=num_results)
+        data = fact_check.fetch_data()
+        info = fact_check.extract_info(data)
+        # If any claim is rated as false/incorrect, return True (i.e., found false info)
+        for entry in info:
+            if "false" in entry.get("textualRating", "").lower() or "incorrect" in entry.get("textualRating", "").lower():
+                return True
+        return False
+    except Exception as e:
+        return False  # If the API fails, do not block output
+
 def analyze_company(api_key):
     console.print("[bold green]Welcome to Company Analysis Bot![/bold green]")
     console.print("This bot will provide a comprehensive analysis of any company.\n")
@@ -347,11 +362,11 @@ def analyze_company(api_key):
         company_name = console.input("[bold blue]Enter company name (or 'exit' to quit):[/bold blue] ")
         
         if company_name.lower() in ['exit', 'quit']:
-            console.print("\n[bold yellow]Goodbye![/bold yellow]")
+            console.print("\n[bold yellow]Goodbye![bold yellow]")
             break
         
         try:
-            console.print(f"\n[yellow]Analyzing {company_name}...[/yellow]")
+            console.print(f"\n[yellow]Analyzing {company_name}...[yellow]")
 
             history_prompt = generate_topic_prompt(company_name, Topic.HISTORY)
             PIM_prompt = generate_topic_prompt(company_name, Topic.PRODUCTS_INDUSTRY_MARKETSIZE)
@@ -363,13 +378,29 @@ def analyze_company(api_key):
             risk_prompt = generate_topic_prompt(company_name, Topic.INVESTMENT_RISKS)
 
             history_analysis = generate_response(api_key, history_prompt)
+            # if fact_check_claim(history_analysis):
+            #     history_analysis = "FALSE INFORMATION"
             PIM_analysis = generate_response(api_key, PIM_prompt)
+            # if fact_check_claim(PIM_analysis):
+            #     PIM_analysis = "FALSE INFORMATION"
             revenue_analysis = generate_response(api_key, revenue_prompt)
+            # if fact_check_claim(revenue_analysis):
+            #     revenue_analysis = "FALSE INFORMATION"
             customers_analysis = generate_response(api_key, customers_prompt)
-            landscape_analysis = generate_response(api_key, landscape_prompt)        
+            # if fact_check_claim(customers_analysis):
+            #     customers_analysis = "FALSE INFORMATION"
+            landscape_analysis = generate_response(api_key, landscape_prompt)
+            # if fact_check_claim(landscape_analysis):
+            #     landscape_analysis = "FALSE INFORMATION"
             fin_performance_analysis = generate_response(api_key, fin_performance_prompt)
+            # if fact_check_claim(fin_performance_analysis):
+            #     fin_performance_analysis = "FALSE INFORMATION"
             risk_analysis = generate_response(api_key, risk_prompt)
+            # if fact_check_claim(risk_analysis):
+            #     risk_analysis = "FALSE INFORMATION"
             drivers_analysis = generate_response(api_key, drivers_prompt)
+            # if fact_check_claim(drivers_analysis):
+            #     drivers_analysis = "FALSE INFORMATION"
 
             console.print("\n[bold green]Analysis:[/bold green]")
 

@@ -4,3 +4,4 @@ rich
 transformers
 torch
 accelerate
+factcheckexplorer
