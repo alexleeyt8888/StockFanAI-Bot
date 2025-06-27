@@ -5,12 +5,14 @@ from rich.markdown import Markdown
 from dotenv import load_dotenv
 from datetime import date, datetime
 from enum import Enum
-from factcheckexplorer.factcheckexplorer import FactCheckLib
+from duckduckgo_search import DDGS
+from newspaper import Article
+from bs4 import BeautifulSoup
 
 console = Console()
 
 class Topic(Enum):
-    HISTORY = ("history", 1)
+    HISTORY = ("History", 1)
     PRODUCTS_INDUSTRY_MARKETSIZE = ("Products, Industry & Market Size", 2)
     REVENUE_BREAKDOWN = ("Revenue Breakdown", 3)
     CUSTOMERS = ("Customers", 4)
@@ -72,7 +74,7 @@ def generate_news_prompt(company_name):
         could dampen returns on this capital outlay and place pressure on Amazon's overall cash-flow profile.
     """
 
-def generate_topic_prompt (company_name, topic):
+def generate_topic_prompt (company_name, topic, context):
     today = date.today()
     # create a dictionary mapping topic to the list of topic examples.
     topic_to_list = {
@@ -97,13 +99,17 @@ def generate_topic_prompt (company_name, topic):
 
     return f"""
         You are a knowledgeable financial senior analyst with expertise in company analysis. 
-        Today is {today}. Use up-to-date financial data, reports, and news to write your response.
-        Write a cohesive paragraph in full sentences that is ~ 250-500 words about the {topic.label} of {company_name}.
+        Today is {today}. Using the full articles given to you below, write a cohesive paragraph in full sentences 
+        that is ~ 250-500 words about the {topic.label} of {company_name}.
         (Some topics or ideas you can talk about, but are not limited to are: {topic_to_list[topic.code]}).
         While writing this analysis, use financial terms percisely and provide valuation context. 
         Lastly, end your response with a brief bullet-pointed summary of the in-depth response that summarizes
         extracts the main points you brought up.
         Don't add any extra follow up sentences after the summary.
+        \n\n
+        Articles: {context}
+
+        \n\n
 
         
         Here is an example of a great response on the key stock drivers of Amazon on 6/22/2025:
@@ -190,115 +196,6 @@ def generate_topic_prompt (company_name, topic):
 
     """
 
-def generate_key_drivers_prompt(company_name):
-    return f'''
-        You are a knowledgeable financial senior analyst with expertise in company analysis. 
-        You have access to up-to-date financial data and news. You are also able to access the latest financial reports and news.
-        Write a cohesive paragraph in full sentences that is ~ 250-500 words about the key stock drivers of {company_name}. 
-        (Some topics you can talk about but are not limited to is Upcoming product or roadmap milestones,
-        Macro trends (interest rates, consumer spending)  , Analyst estimate revisions or consensus targets , Catalysts 
-        (earnings beats, partnerships)  , Capital allocation (buybacks, dividends)  , Regulatory or geopolitical tailwinds, etc.)
-        While writing this analysis, use financial terms percisely and provide valuation context. 
-        Lastly, end your response with a brief bullet-pointed summary of the in-depth response that summarizes
-        extracts the main points you brought up. Don't add any extra follow up sentences after the summary.
-        
-        Here is an example of a great response on the key stock drivers of Amazon on 6/22/2025:
-
-        Over the next twelve months, Amazon's share performance will be underpinned primarily by its 
-        ongoing transformation into an AI-first enterprise, with Amazon Web Services (AWS) at the vanguard 
-        of both top-line growth and margin expansion. AWS is set to introduce a suite of next-generation offerings—ranging 
-        from Aurora PostgreSQL version 17 and enhanced Bedrock foundation models to its quantum-compute "Ocelot" chip—that 
-        should sustain its industry-leading ~33% operating margin and drive low-teens revenue growth through mid-2026. 
-        Concurrently, Amazon's retail business is embedding advanced machine-learning algorithms across warehousing, 
-        last-mile delivery, and inventory forecasting, which management expects will compress fulfillment costs by 
-        approximately 50-75 basis points in FY 2026, helping offset softening unit demand in mature markets. In entertainment, 
-        Prime Video's rollout of AI-powered dubbing and an expanded Upfront 2025 lineup will bolster ad-supported streaming 
-        revenue and improve incremental ARPU per member.
-
-        Macroeconomic conditions remain broadly favorable: with the Federal Reserve signifying a pause in rate hikes and the 
-        U.S. consumer savings rate hovering near its decade average, discretionary spending should continue to support Amazon's 
-        retail GMV. That said, geopolitical risks—particularly imported-goods tariffs—and intensifying antitrust scrutiny in 
-        both North America and the EU represent potential headwinds to margin trajectory. On the sell-side, 47 analysts peg AMZN's 
-        twelve-month consensus price target at roughly $246, implying ~17% upside from current levels, with EPS forecasts of $6.30 
-        in FY 2025 (up ~14% YoY) driving a target P/E of ~39x.
-
-        Finally, although capital expenditures surged past $100 billion in 2024 for AI and distribution capacity, management has 
-        signaled more disciplined spending in 2025-2026, which could free up incremental free cash flow for continued share repurchases. 
-        This disciplined capital allocation, combined with robust free cash flow conversion (above 20% of revenue), should support a 
-        rising return on invested capital and narrow the valuation discount to peers—even absent a formal dividend policy.
-
-        Summary of Key Takeaways:
-
-        AWS AI & Cloud Innovation: New AI-driven services and Aurora v17 to sustain low-teens revenue growth and ~33% margins
-
-        Retail Efficiency Gains: Machine-learning in logistics to compress fulfillment costs by 50-75 bps in FY 2026
-
-        Prime Video & Advertising: AI dubbing and Upfront 2025 to enhance ARPU and ad revenues
-
-        Macro & Geopolitical: Fed pause and resilient consumer spending vs. tariff and antitrust risks
-
-        Analyst Consensus: ~$246 price target; FY 2025 EPS $6.30 (+14%), implying ~39x forward P/E
-
-        Capital Allocation: Evolving capex discipline to bolster free cash flow and fund share buybacks
-
-    '''
-
-def generate_risk_prompt(company_name):
-    return f'''
-        You are a knowledgeable financial senior analyst with expertise in company analysis.
-        Write a cohesive paragraph in full sentences that is ~ 250-500 words about the investment risks of {company_name}. 
-        (Some examples you can talk about, but are not limited to, is 
-        Competitive pressure or price wars, Supply-chain or cost headwinds, 
-        Regulatory, legal, or antitrust scrutiny, Currency or geopolitical exposure,
-        Execution risks on new initiatives, Valuation or sentiment shifts, etc.)
-        While writing this analysis, use financial terms percisely and provide valuation context. 
-        Lastly, end your response with a brief bullet-pointed summary of the in-depth response that summarizes
-        extracts the main points you brought up. Don't add any extra follow up sentences after the summary.
-        
-        Here is an example of a great response on the investment risks of Amazon on 6/22/2025:
-
-            Amazon's investment profile, though underpinned by robust scale and diversified operations,
-            is shadowed by several material risks that could erode shareholder value. In the quarter ended March 31, 2025,
-            Amazon reported net sales of $155.7 billion—up 9% year-over-year—but this figure masks a $1.4 billion unfavorable impact
-            from foreign-exchange fluctuations, highlighting its sensitivity to currency volatility across Europe, Latin America, and Asia.
-            Supply-chain and cost headwinds remain acute: on its May 1, 2025 earnings call, management cautioned that elevated labor, 
-            logistics, and infrastructure expenses, compounded by potential U.S.-China tariff increases up to 145% on consumer goods,
-            could compress retail and marketplace margins throughout 2025.
-
-            Competitive pressures are intensifying across both e-commerce and cloud segments.
-            In online retail, players such as Walmart, Alibaba, and fast-fashion newcomers like Temu continue to undercut pricing
-            and encroach on market share, while in cloud computing, Microsoft Azure—whose server products and cloud services
-            revenue grew 30% in the quarter ended June 30, 2024—and Google Cloud—up 30% in revenue in Q4 2024—have narrowed AWS's
-            dominance and pressure AWS to sustain above-market growth rates.
-
-            Regulatory and legal scrutiny further darkens the outlook. A Federal Trade Commission lawsuit alleging the use of 
-            "dark patterns" to trick consumers into auto-renewing Prime memberships is set for a bench trial in June 2025, 
-            and a broader antitrust suit accusing Amazon of abusing its marketplace monopoly will not reach trial until October 2026—risks 
-            that could result in injunctive relief, fines, or mandated business-model changes.
-
-            Execution risks on capital-intensive initiatives, including the satellite-broadband Project Kuiper rollout and multi-billion-dollar
-            AWS AI infrastructure investments (such as Trainium 2 chips and Bedrock model expansion), may strain free cash flow if adoption lags expectations. 
-            Finally, Amazon's valuation remains at a premium—trading near 34x trailing twelve-month earnings as of June 20,
-            2025—making the stock particularly vulnerable to shifts in investor sentiment if revenue growth or operating-income guidance
-            disappoints, as evidenced by a 3% share drop following the cautious Q2 outlook issued on May 1, 2025.
-
-            
-            Summary of Key Investment Risks:
-
-            Currency & Geopolitical Exposure: $1.4 billion FX headwind in Q1 2025; potential U.S.-China tariffs up to 145%.
-
-            Cost & Supply-Chain Pressures: Elevated labor, logistics, and infrastructure expenses squeezing margins.
-
-            Competitive Intensity: E-commerce undercut by Walmart, Alibaba, Temu; AWS challenged by Azure and Google Cloud.
-
-            Regulatory & Legal Scrutiny: FTC "dark patterns" trial in June 2025; broader antitrust suit trial in October 2026.
-
-            Execution Risks: High-cost projects (Project Kuiper, AI infrastructure) may under-deliver on returns.
-
-            Valuation Sensitivity: Trading at ~34x TTM earnings (as of June 20, 2025), shares fell 3% on cautious Q2 guidance.
-
-    '''
-
 def generate_response(api_key, prompt):
     """Generate a response using the OpenRouter API."""
     headers = {
@@ -340,19 +237,65 @@ def generate_response(api_key, prompt):
             console.print(f"[bold red]Response:[/bold red] {e.response.text}")
         return "I apologize, but I encountered an error while generating the analysis. Please try again."
 
-def fact_check_claim(claim, language="en", num_results=5):
-    """Fact-check a claim using Google's Fact Check Explorer via factcheckexplorer."""
-    try:
-        fact_check = FactCheckLib(query=claim, language=language, num_results=num_results)
-        data = fact_check.fetch_data()
-        info = fact_check.extract_info(data)
-        # If any claim is rated as false/incorrect, return True (i.e., found false info)
-        for entry in info:
-            if "false" in entry.get("textualRating", "").lower() or "incorrect" in entry.get("textualRating", "").lower():
-                return True
-        return False
-    except Exception as e:
-        return False  # If the API fails, do not block output
+def search_articles(topic: str, max_results: int = 5):
+    """
+    Search DuckDuckGo for the topic, then fetch and parse the full text of each result.
+    Returns a list of dicts with 'title', 'url', and 'text'.
+    """
+    results = []
+    with DDGS() as ddgs:
+        for hit in ddgs.text(topic, max_results=max_results):
+            url = hit.get("href")
+            title = hit.get("title", "").strip()
+            if not url:
+                continue
+            try:
+                article = Article(url)
+                article.download()
+                article.parse()
+                text = article.text
+            except Exception:
+                # Fallback: simple HTTP + tag stripping
+                resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+                soup = BeautifulSoup(resp.text, "html.parser")
+                text = soup.get_text(" ", strip=True)
+            results.append({"title": title, "url": url, "text": text})
+    return results
+
+def analyze_company_with_articles(api_key):
+    console.print("[bold green]Welcome to Company Analysis Bot![/bold green]")
+    console.print("This bot will provide a comprehensive analysis of any company.\n")
+    today = date.today()
+    while True:
+        company_name = console.input("[bold blue]Enter company name (or 'exit' to quit):[/bold blue] ")
+        
+        if company_name.lower() in ['exit', 'quit']:
+            console.print("\n[bold yellow]Goodbye![bold yellow]")
+            break
+        try:
+            console.print(f"\n[yellow]Analyzing {company_name}...[yellow]")
+
+            console.print("\n[bold green]Analysis:[/bold green]")
+
+            
+            topic_enums = list(Topic)
+            for topic in topic_enums:
+                search_query = f"Today is {today}. What is the {topic.label} for {company_name}"
+                articles = search_articles(search_query)
+
+                context = "\n\n".join(
+                    f"Title: {a['title']}\nURL: {a['url']}\n\n{a['text']}\n{'-'*80}"
+                    for a in articles
+                )
+                prompt = generate_topic_prompt(company_name, topic, context)
+                analysis = generate_response(api_key, prompt)
+                console.print(f"\n[bold green]{topic.label}[/bold green]", justify="center")
+                console.print(Markdown(analysis))
+                console.print()
+            
+        except Exception as e:
+            console.print(f"[bold red]Error:[/bold red] {str(e)}")
+    
 
 def analyze_company(api_key):
     console.print("[bold green]Welcome to Company Analysis Bot![/bold green]")
@@ -378,29 +321,29 @@ def analyze_company(api_key):
             risk_prompt = generate_topic_prompt(company_name, Topic.INVESTMENT_RISKS)
 
             history_analysis = generate_response(api_key, history_prompt)
-            # if fact_check_claim(history_analysis):
-            #     history_analysis = "FALSE INFORMATION"
+            if fact_check_claim(history_analysis):
+                history_analysis = "FALSE INFORMATION"
             PIM_analysis = generate_response(api_key, PIM_prompt)
-            # if fact_check_claim(PIM_analysis):
-            #     PIM_analysis = "FALSE INFORMATION"
+            if fact_check_claim(PIM_analysis):
+                PIM_analysis = "FALSE INFORMATION"
             revenue_analysis = generate_response(api_key, revenue_prompt)
-            # if fact_check_claim(revenue_analysis):
-            #     revenue_analysis = "FALSE INFORMATION"
+            if fact_check_claim(revenue_analysis):
+                revenue_analysis = "FALSE INFORMATION"
             customers_analysis = generate_response(api_key, customers_prompt)
-            # if fact_check_claim(customers_analysis):
-            #     customers_analysis = "FALSE INFORMATION"
+            if fact_check_claim(customers_analysis):
+                customers_analysis = "FALSE INFORMATION"
             landscape_analysis = generate_response(api_key, landscape_prompt)
-            # if fact_check_claim(landscape_analysis):
-            #     landscape_analysis = "FALSE INFORMATION"
+            if fact_check_claim(landscape_analysis):
+                landscape_analysis = "FALSE INFORMATION"
             fin_performance_analysis = generate_response(api_key, fin_performance_prompt)
-            # if fact_check_claim(fin_performance_analysis):
-            #     fin_performance_analysis = "FALSE INFORMATION"
+            if fact_check_claim(fin_performance_analysis):
+                fin_performance_analysis = "FALSE INFORMATION"
             risk_analysis = generate_response(api_key, risk_prompt)
-            # if fact_check_claim(risk_analysis):
-            #     risk_analysis = "FALSE INFORMATION"
+            if fact_check_claim(risk_analysis):
+                risk_analysis = "FALSE INFORMATION"
             drivers_analysis = generate_response(api_key, drivers_prompt)
-            # if fact_check_claim(drivers_analysis):
-            #     drivers_analysis = "FALSE INFORMATION"
+            if fact_check_claim(drivers_analysis):
+                drivers_analysis = "FALSE INFORMATION"
 
             console.print("\n[bold green]Analysis:[/bold green]")
 
@@ -442,7 +385,7 @@ def analyze_company(api_key):
 def main():
     try:
         api_key = setup_api()
-        analyze_company(api_key)
+        analyze_company_with_articles(api_key=api_key)
     except Exception as e:
         console.print(f"[bold red]Fatal Error:[/bold red] {str(e)}")
         return 1
