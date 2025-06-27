@@ -32,7 +32,9 @@ def setup_api():
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key:
         raise ValueError("Please set API key in your .env file")
-    return gemini_api_key
+    if not open_router_api_key:
+        raise ValueError("Please set API key in your .env file")
+    return gemini_api_key, open_router_api_key
 
 def generate_news_prompt(company_name):
     today = date.today()
@@ -195,6 +197,22 @@ def generate_topic_prompt(company_name, topic):
     """
     return prompt_string
 
+def generate_critique_prompt(company_name, topic, draft_text):
+    today = date.today()
+    return f"""
+            You are a senior equity research analyst and fact-checker. Today is {today}.  
+            You have just read a draft analysis of {company_name} on “{topic}.”  
+
+            Your tasks are:  
+            1. Verify every factual claim, statistic, and date in the draft. Update any out-of-date or incorrect figures to the latest available data (cite your sources inline).  
+            2. Correct any misstatements or inconsistencies.  
+            3. Restructure and polish the narrative into a cohesive, publication-ready analysis with clear subheadings (e.g. Overview, Key Metrics, Valuation, Risks).  
+            4. Ensure financial terminology is used precisely and that any valuation context is clearly explained.  
+            5. Conclude with a concise bullet-point summary of the main takeaways.  
+
+            Please output only the fully polished analysis (no internal notes), with in-text citations where you updated or confirmed a fact.
+            """
+
 def generate_response(api_key, prompt):
     """Generate a response using the OpenRouter API."""
     headers = {
@@ -216,7 +234,7 @@ def generate_response(api_key, prompt):
              '''},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.2,
+        "temperature": 0.6,
         "top_p": 0.85,
         "max_tokens": 5000,
         "stop": ["Are there any other companies you would like me to analyze?"]
@@ -315,7 +333,7 @@ def analyze_company_with_articles(api_key):
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}")  
 
-def analyze_company(api_key):
+def analyze_company(deepseek_api_key, gemini_api_key):
     console.print("[bold green]Welcome to Company Analysis Bot![/bold green]")
     console.print("This bot will provide a comprehensive analysis of any company.\n")
     today = date.today()
@@ -333,19 +351,35 @@ def analyze_company(api_key):
             topic_enums = list(Topic)
             for topic in topic_enums:
                 prompt = generate_topic_prompt(company_name, topic)
-                analysis = generate_response_with_gemini(api_key, prompt)
+                draft_analysis = generate_response(deepseek_api_key, prompt)
+                critique_analysis = critique(gemini_api_key, company_name, topic, draft_analysis)
                 console.print(f"\n[bold green]{topic.label}[/bold green]", justify="center")
-                console.print(Markdown(analysis))
+                console.print(Markdown(critique_analysis))
                 console.print()
             
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}")  
 
+def critique (api_key, company_name, topic, response):
+    client = genai.Client(api_key=api_key)
+    critique_prompt = generate_critique_prompt(company_name, topic, response)
+    critique_content = f'''
+                            Here is the draft you should critique and refine:
+
+                            {response}
+                        '''
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction=critique_prompt, temperature = 0.2),
+        contents=critique_content,
+    )
+    return response.text
 
 def main():
     try:
-        api_key = setup_api()
-        analyze_company(api_key=api_key)
+        gemini_api_key, deepseek_api_key = setup_api()
+        analyze_company(deepseek_api_key, gemini_api_key)
     except Exception as e:
         console.print(f"[bold red]Fatal Error:[/bold red] {str(e)}")
         return 1
