@@ -6,8 +6,10 @@ from dotenv import load_dotenv
 from datetime import date, datetime
 from enum import Enum
 from duckduckgo_search import DDGS
-from newspaper import Article
 from bs4 import BeautifulSoup
+from google import genai
+from google.genai import types
+
 
 console = Console()
 
@@ -26,10 +28,11 @@ class Topic(Enum):
 
 def setup_api():
     load_dotenv()
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("Please set OPENROUTER_API_KEY in your .env file")
-    return api_key
+    open_router_api_key = os.getenv("OPENROUTER_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        raise ValueError("Please set API key in your .env file")
+    return gemini_api_key
 
 def generate_news_prompt(company_name):
     today = date.today()
@@ -74,7 +77,7 @@ def generate_news_prompt(company_name):
         could dampen returns on this capital outlay and place pressure on Amazon's overall cash-flow profile.
     """
 
-def generate_topic_prompt (company_name, topic, context):
+def generate_topic_prompt(company_name, topic):
     today = date.today()
     # create a dictionary mapping topic to the list of topic examples.
     topic_to_list = {
@@ -97,20 +100,15 @@ def generate_topic_prompt (company_name, topic, context):
               Currency or geopolitical exposure, Execution risks on new initiatives, Valuation or sentiment shifts'''
     }
 
-    return f"""
+    prompt_string = f"""
         You are a knowledgeable financial senior analyst with expertise in company analysis. 
-        Today is {today}. Using the full articles given to you below, write a cohesive paragraph in full sentences 
+        Today is {today}. Using up-to-date information write a cohesive paragraph in full sentences 
         that is ~ 250-500 words about the {topic.label} of {company_name}.
         (Some topics or ideas you can talk about, but are not limited to are: {topic_to_list[topic.code]}).
         While writing this analysis, use financial terms percisely and provide valuation context. 
         Lastly, end your response with a brief bullet-pointed summary of the in-depth response that summarizes
         extracts the main points you brought up.
         Don't add any extra follow up sentences after the summary.
-        \n\n
-        Articles: {context}
-
-        \n\n
-
         
         Here is an example of a great response on the key stock drivers of Amazon on 6/22/2025:
 
@@ -195,6 +193,7 @@ def generate_topic_prompt (company_name, topic, context):
             Valuation Sensitivity: Trading at ~34x TTM earnings (as of June 20, 2025), shares fell 3% on cautious Q2 guidance.
 
     """
+    return prompt_string
 
 def generate_response(api_key, prompt):
     """Generate a response using the OpenRouter API."""
@@ -236,6 +235,26 @@ def generate_response(api_key, prompt):
         if hasattr(e.response, 'text'):
             console.print(f"[bold red]Response:[/bold red] {e.response.text}")
         return "I apologize, but I encountered an error while generating the analysis. Please try again."
+
+def generate_response_with_gemini(api_key, prompt):
+    client = genai.Client(api_key=api_key)
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction='''
+             You are a knowledgeable financial senior analyst with expertise in company analysis. 
+             You have access to up-to-date financial data and news. You are also able to access the latest financial reports and news. 
+             For each request, you should: Be thorough and specific with your analysis in your response
+             Include absolute dates (e.g. "QoQ growth in Q1 2025 was…")
+             When possible reference your data sources (e.g. SEC filings, company presentations).
+             Furthermore, write in a tone that is suitable for your audience of stock investors.
+             Lastly, make sure everything is in paragraph form with well chosen subheadings that describe what is contained in the body.
+             '''),
+        contents=prompt,
+        
+    )
+    return response.text
 
 def search_articles(topic: str, max_results: int = 5):
     """
@@ -294,98 +313,39 @@ def analyze_company_with_articles(api_key):
                 console.print()
             
         except Exception as e:
-            console.print(f"[bold red]Error:[/bold red] {str(e)}")
-    
+            console.print(f"[bold red]Error:[/bold red] {str(e)}")  
 
 def analyze_company(api_key):
     console.print("[bold green]Welcome to Company Analysis Bot![/bold green]")
     console.print("This bot will provide a comprehensive analysis of any company.\n")
-    
+    today = date.today()
     while True:
         company_name = console.input("[bold blue]Enter company name (or 'exit' to quit):[/bold blue] ")
         
         if company_name.lower() in ['exit', 'quit']:
             console.print("\n[bold yellow]Goodbye![bold yellow]")
             break
-        
         try:
             console.print(f"\n[yellow]Analyzing {company_name}...[yellow]")
 
-            history_prompt = generate_topic_prompt(company_name, Topic.HISTORY)
-            PIM_prompt = generate_topic_prompt(company_name, Topic.PRODUCTS_INDUSTRY_MARKETSIZE)
-            revenue_prompt = generate_topic_prompt(company_name, Topic.REVENUE_BREAKDOWN)
-            customers_prompt = generate_topic_prompt(company_name, Topic.CUSTOMERS)
-            landscape_prompt = generate_topic_prompt(company_name, Topic.COMPETITIVE_LANDSCAPE)
-            fin_performance_prompt = generate_topic_prompt(company_name, Topic.FINANCIAL_PERFORMANCE)
-            drivers_prompt = generate_topic_prompt(company_name, Topic.STOCK_DRIVERS)
-            risk_prompt = generate_topic_prompt(company_name, Topic.INVESTMENT_RISKS)
-
-            history_analysis = generate_response(api_key, history_prompt)
-            if fact_check_claim(history_analysis):
-                history_analysis = "FALSE INFORMATION"
-            PIM_analysis = generate_response(api_key, PIM_prompt)
-            if fact_check_claim(PIM_analysis):
-                PIM_analysis = "FALSE INFORMATION"
-            revenue_analysis = generate_response(api_key, revenue_prompt)
-            if fact_check_claim(revenue_analysis):
-                revenue_analysis = "FALSE INFORMATION"
-            customers_analysis = generate_response(api_key, customers_prompt)
-            if fact_check_claim(customers_analysis):
-                customers_analysis = "FALSE INFORMATION"
-            landscape_analysis = generate_response(api_key, landscape_prompt)
-            if fact_check_claim(landscape_analysis):
-                landscape_analysis = "FALSE INFORMATION"
-            fin_performance_analysis = generate_response(api_key, fin_performance_prompt)
-            if fact_check_claim(fin_performance_analysis):
-                fin_performance_analysis = "FALSE INFORMATION"
-            risk_analysis = generate_response(api_key, risk_prompt)
-            if fact_check_claim(risk_analysis):
-                risk_analysis = "FALSE INFORMATION"
-            drivers_analysis = generate_response(api_key, drivers_prompt)
-            if fact_check_claim(drivers_analysis):
-                drivers_analysis = "FALSE INFORMATION"
-
             console.print("\n[bold green]Analysis:[/bold green]")
 
-            console.print("\n[bold green]History[/bold green]", justify="center")
-            console.print(Markdown(history_analysis))
-            console.print() 
-
-            console.print("\n[bold green]Products, Industry & Market Size[/bold green]", justify="center")
-            console.print(Markdown(PIM_analysis))
-            console.print() 
-
-            console.print("\n[bold green]Revenue Breakdown[/bold green]", justify="center")
-            console.print(Markdown(revenue_analysis))
-            console.print() 
-
-            console.print("\n[bold green]Customers[/bold green]", justify="center")
-            console.print(Markdown(customers_analysis))
-            console.print() 
-
-            console.print("\n[bold green]Competitive Landscape[/bold green]", justify="center")
-            console.print(Markdown(landscape_analysis))
-            console.print() 
-
-            console.print("\n[bold green]Financial Performance[/bold green]", justify="center")
-            console.print(Markdown(fin_performance_analysis))
-            console.print() 
-            
-            console.print("\n[bold green]Key Stock Drivers[/bold green]", justify="center")
-            console.print(Markdown(drivers_analysis))
-            console.print() 
-            
-            console.print("\n[bold green]Investment Risks[/bold green]", justify="center")
-            console.print(Markdown(risk_analysis))
-            console.print() 
+            topic_enums = list(Topic)
+            for topic in topic_enums:
+                prompt = generate_topic_prompt(company_name, topic)
+                analysis = generate_response_with_gemini(api_key, prompt)
+                console.print(f"\n[bold green]{topic.label}[/bold green]", justify="center")
+                console.print(Markdown(analysis))
+                console.print()
             
         except Exception as e:
-            console.print(f"[bold red]Error:[/bold red] {str(e)}")
+            console.print(f"[bold red]Error:[/bold red] {str(e)}")  
+
 
 def main():
     try:
         api_key = setup_api()
-        analyze_company_with_articles(api_key=api_key)
+        analyze_company(api_key=api_key)
     except Exception as e:
         console.print(f"[bold red]Fatal Error:[/bold red] {str(e)}")
         return 1
