@@ -5,8 +5,6 @@ from rich.markdown import Markdown
 from dotenv import load_dotenv
 from datetime import date, datetime
 from enum import Enum
-from duckduckgo_search import DDGS
-from bs4 import BeautifulSoup
 from google import genai
 from google.genai import types
 
@@ -194,21 +192,59 @@ def generate_comparison_prompt(company_name):
     """
 
 # Prompt for critic model (gemini)
-def generate_critique_prompt(company_name, topic):
+# def generate_critique_prompt(company_name, topic):
+#     today = date.today()
+#     return f"""
+#             You are a senior equity research analyst and fact-checker. Today is {today}.  
+#             You have just read a draft analysis of {company_name} on “{topic}.”  
+
+#             Your tasks are:  
+#             1. Verify every factual claim, statistic, and date in the draft. Update any out-of-date or incorrect figures to the latest available data (cite your sources inline).  
+#             2. Correct any misstatements or inconsistencies.  
+#             3. Restructure and polish the narrative into a cohesive, publication-ready analysis with clear subheadings (e.g. Overview, Key Metrics, Valuation, Risks).  
+#             4. Ensure financial terminology is used precisely and that any valuation context is clearly explained.  
+#             5. Conclude with a concise bullet-point summary of the main takeaways.  
+
+#             Please output only the fully polished analysis (no internal notes), with in-text citations where you updated or confirmed a fact.
+#             """
+
+def generate_critique_prompt(company_name):
     today = date.today()
     return f"""
-            You are a senior equity research analyst and fact-checker. Today is {today}.  
-            You have just read a draft analysis of {company_name} on “{topic}.”  
+        You are a senior equity research analyst and fact-checker. Today is {today}.
 
-            Your tasks are:  
-            1. Verify every factual claim, statistic, and date in the draft. Update any out-of-date or incorrect figures to the latest available data (cite your sources inline).  
-            2. Correct any misstatements or inconsistencies.  
-            3. Restructure and polish the narrative into a cohesive, publication-ready analysis with clear subheadings (e.g. Overview, Key Metrics, Valuation, Risks).  
-            4. Ensure financial terminology is used precisely and that any valuation context is clearly explained.  
-            5. Conclude with a concise bullet-point summary of the main takeaways.  
+        You have just read a draft analysis of {company_name}
 
-            Please output only the fully polished analysis (no internal notes), with in-text citations where you updated or confirmed a fact.
-            """
+        Your tasks are:
+        1. Verify every factual claim, statistic, and date in the draft by searching the web for up-to-date information.
+        2. For each incorrect or outdated sentence, prepare one entry in a **Corrections Summary** list:
+        - **Original:** “<the exact original sentence>”
+        - **Corrected:** “<the updated, fully accurate sentence>” (Source: <inline citation>)
+        3. Do not output the draft itself—only the Corrections Summary list.
+        4. Use precise financial terminology and exact dates where applicable.
+        5. If everything is factual and correct please output "ALL GOOD"
+        """
+
+def generate_edit_prompt(company_name, old_output, correction_output):
+    return f"""
+        You are a senior equity research analyst and publication-ready writer. 
+        
+        Here is a draft of the companay analysis of {company_name}:
+        {old_output}
+        
+        You've just received the following Corrections Summary for a draft company analysis of {company_name}:
+        {correction_output}
+        
+        Your task is to integrate these corrections into a fully polished, cohesive analysis.
+
+        Make sure you are :
+        - Useing the **corrected facts** exactly as stated in the summary, with in-text citations matching the sources.  
+        - Employing precise financial terminology and absolute dates (e.g. “Q1 FY2025,” “May 22, 2024”).  
+        - Providing smooth narrative transitions between sections.  
+        - Concluding with a concise, bullet-point list of the most important takeaways after each section.
+
+        Output **only** the final analysis.  
+    """
 
 # Response from deepseek r1 model. Drafting model
 def generate_response_with_deepseek(api_key, prompt):
@@ -234,7 +270,6 @@ def generate_response_with_deepseek(api_key, prompt):
         ],
         "temperature": 0.6,
         "top_p": 0.85,
-        "max_tokens": 5000,
         "stop": ["Are there any other companies you would like me to analyze?"]
     }
     
@@ -252,31 +287,10 @@ def generate_response_with_deepseek(api_key, prompt):
             console.print(f"[bold red]Response:[/bold red] {e.response.text}")
         return "I apologize, but I encountered an error while generating the analysis. Please try again."
 
-# Response from Gemini model. Critic
-def generate_response_with_gemini(api_key, prompt):
-    client = genai.Client(api_key=api_key)
-
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        config=types.GenerateContentConfig(
-            system_instruction='''
-             You are a knowledgeable financial senior analyst with expertise in company analysis. 
-             You have access to up-to-date financial data and news. You are also able to access the latest financial reports and news. 
-             For each request, you should: Be thorough and specific with your analysis in your response
-             Include absolute dates (e.g. "QoQ growth in Q1 2025 was…")
-             When possible reference your data sources (e.g. SEC filings, company presentations).
-             Furthermore, write in a tone that is suitable for your audience of stock investors.
-             Lastly, make sure everything is in paragraph form with well chosen subheadings that describe what is contained in the body.
-             '''),
-        contents=prompt,
-        
-    )
-    return response.text
-
 # Response to critique the current draft
-def generate_critique_feedback (api_key, company_name, topic, response):
+def generate_critique_feedback (api_key, company_name, response):
     client = genai.Client(api_key=api_key)
-    critique_prompt = generate_critique_prompt(company_name, topic, response)
+    critique_prompt = generate_critique_prompt(company_name)
     critique_content = f'''
                             Here is the draft you should critique and refine:
 
@@ -293,7 +307,6 @@ def generate_critique_feedback (api_key, company_name, topic, response):
 def analyze_company(deepseek_api_key, gemini_api_key):
     console.print("[bold green]Welcome to Company Analysis Bot![/bold green]")
     console.print("This bot will provide a comprehensive analysis of any company.\n")
-    today = date.today()
     while True:
         company_name = console.input("[bold blue]Enter company name (or 'exit' to quit):[/bold blue] ")
         
@@ -305,17 +318,39 @@ def analyze_company(deepseek_api_key, gemini_api_key):
 
             console.print("\n[bold green]Analysis:[/bold green]")
 
+            response = "\n"
+
             topic_enums = list(Topic)
+            # loop through the 8 topics
             for topic in topic_enums:
+                # rough draft of response
                 prompt = generate_topic_prompt(company_name, topic)
                 draft_analysis = generate_response_with_deepseek(deepseek_api_key, prompt)
-                critique_analysis = generate_critique_feedback(gemini_api_key, company_name, topic, draft_analysis)
+                response = response + f"[bold green]{topic.label}[/bold green]\n" + draft_analysis + "\n"
+
                 # TODO ADD THE COMPARISON
-                console.print(f"\n[bold green]{topic.label}[/bold green]", justify="center")
-                console.print(Markdown(critique_analysis))
-                console.print("\n[bold green]CompetitiveComparison[/bold green]", justify="center")
-                console.print(Markdown())
+                # console.print("\n[bold green]Competitive Comparison[/bold green]", justify="center")
+
+            # critiquing the output
+            correction_output = generate_critique_feedback(gemini_api_key, company_name, draft_analysis)
+            
+            # debug
+            console.print(Markdown(correction_output))
+            console.print()
+            count = 0
+            amount_of_cycles = 1
+            # go through the cycle of critiquing and redrafting 
+            # or until there is no incorrect information
+            while count < 1 and correction_output != "ALL GOOD":
+                edit_prompt = generate_edit_prompt(company_name, response, correction_output)
+                response = generate_response_with_deepseek(deepseek_api_key, edit_prompt)
+                correction_output = generate_critique_feedback(gemini_api_key, company_name, response)
+                console.print(Markdown(correction_output))
                 console.print()
+                count+=1
+
+            console.print(Markdown(response))
+
             
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}")  
