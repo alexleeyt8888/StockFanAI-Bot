@@ -1,7 +1,6 @@
 requests
 python-dotenv
 rich
-transformers
-torch
-accelerate
-factcheckexplorer
+duckduckgo-search
+beautifulsoup4
+google-generativeai

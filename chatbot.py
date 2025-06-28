@@ -13,6 +13,7 @@ from google.genai import types
 
 console = Console()
 
+# Enum for the 8 topics that the analysis should be about
 class Topic(Enum):
     HISTORY = ("History", 1)
     PRODUCTS_INDUSTRY_MARKETSIZE = ("Products, Industry & Market Size", 2)
@@ -26,6 +27,7 @@ class Topic(Enum):
         self.label = label
         self.code = code
 
+# Accessing Gemini and OpenRouter API Key
 def setup_api():
     load_dotenv()
     open_router_api_key = os.getenv("OPENROUTER_API_KEY")
@@ -36,52 +38,12 @@ def setup_api():
         raise ValueError("Please set API key in your .env file")
     return gemini_api_key, open_router_api_key
 
-def generate_news_prompt(company_name):
-    today = date.today()
-    return f"""
-        You are a financial news analyst with expertise in corporate reporting.
-        Today is {today}.
-        Please gather and summarize the most recent news and developments for {company_name}
-        over the past 30 days. Make sure you output your response in order from newest to latest.
-        Here is how you should organize your response:
 
-        1. Date of publiciation
-        2. Headline
-        3. Source (with a link that can be clicked)
-        4. In-depth summary of the news being reported (100-200 words)
-        5. **Implication** for the company's business or stock (200-300 words)
-
-        Here is a good example of a news entry for Amazon on June 22, 2025:
-
-        Date of Publication: June 19, 2025
-
-        Headline: Amazon to invest $233 million in India to expand operations, improve technology
-
-        Source: reuters.com
-
-        In-Depth Summary: On June 19, 2025, Amazon announced a planned investment of ₹20 billion (~$233 million)
-        in India over the coming year to bolster its fulfillment and delivery network. The capital will fund new 
-        fulfillment centers, upgrades to existing facilities, and the deployment of advanced technologies aimed 
-        at improving processing speed and delivery safety. Part of the funds will support real-time monitoring tools 
-        that alert delivery personnel to unsafe driving speeds and optimize route allocation. Additionally, Amazon 
-        intends to expand employee welfare programs, enhancing health and financial benefits for its Indian workforce. 
-        This commitment builds on Amazon's earlier pledge in June 2023 to invest $26 billion in India by 2030, underscoring 
-        the market's strategic importance to its global growth strategy.
-
-        Implication:
-        Amazon's substantial infusion of capital into India reinforces its long-term commitment to one of the world's fastest-growing 
-        e-commerce markets. By expanding infrastructure and integrating advanced logistics technology, Amazon aims to reduce delivery 
-        lead times and increase customer satisfaction, which could translate into higher market share against local rival Flipkart and 
-        emerging discount platforms like JioMart. The increased welfare spending signals a strategic effort to mitigate high attrition 
-        rates in India's logistics workforce, improving operational stability. However, the substantial upfront investment will weigh 
-        on free cash flow in the near term, particularly as global cost pressures persist. Investors should monitor whether these enhancements 
-        drive measurable improvements in Indian revenue growth and margin expansion over the next several quarters; failure to realize efficiencies 
-        could dampen returns on this capital outlay and place pressure on Amazon's overall cash-flow profile.
-    """
-
+# Prompt to generate for the LLM given the company and the topic. Will probably be looped through 8 times
+# once for each of the topic.
 def generate_topic_prompt(company_name, topic):
     today = date.today()
-    # create a dictionary mapping topic to the list of topic examples.
+    # create a dictionary, mapping topic to the list of topic examples to help the LLM.
     topic_to_list = {
         1: """Business model evolution, Founding year, location, and founders, 
               Early products or services, Major funding rounds or IPO, Acquisitions, 
@@ -196,22 +158,7 @@ def generate_topic_prompt(company_name, topic):
     """
     return prompt_string
 
-def generate_critique_prompt(company_name, topic, draft_text):
-    today = date.today()
-    return f"""
-            You are a senior equity research analyst and fact-checker. Today is {today}.  
-            You have just read a draft analysis of {company_name} on “{topic}.”  
-
-            Your tasks are:  
-            1. Verify every factual claim, statistic, and date in the draft. Update any out-of-date or incorrect figures to the latest available data (cite your sources inline).  
-            2. Correct any misstatements or inconsistencies.  
-            3. Restructure and polish the narrative into a cohesive, publication-ready analysis with clear subheadings (e.g. Overview, Key Metrics, Valuation, Risks).  
-            4. Ensure financial terminology is used precisely and that any valuation context is clearly explained.  
-            5. Conclude with a concise bullet-point summary of the main takeaways.  
-
-            Please output only the fully polished analysis (no internal notes), with in-text citations where you updated or confirmed a fact.
-            """
-
+# Prompt to compare the company with its competitors
 def generate_comparison_prompt(company_name):
     return f"""
     You are a financial analyst comparing companies. Perform a detailed comparison between {company_name} and its 2-3 closest competitors.
@@ -246,7 +193,25 @@ def generate_comparison_prompt(company_name):
     - Google's AI-first approach...
     """
 
-def generate_response(api_key, prompt):
+# Prompt for critic model (gemini)
+def generate_critique_prompt(company_name, topic):
+    today = date.today()
+    return f"""
+            You are a senior equity research analyst and fact-checker. Today is {today}.  
+            You have just read a draft analysis of {company_name} on “{topic}.”  
+
+            Your tasks are:  
+            1. Verify every factual claim, statistic, and date in the draft. Update any out-of-date or incorrect figures to the latest available data (cite your sources inline).  
+            2. Correct any misstatements or inconsistencies.  
+            3. Restructure and polish the narrative into a cohesive, publication-ready analysis with clear subheadings (e.g. Overview, Key Metrics, Valuation, Risks).  
+            4. Ensure financial terminology is used precisely and that any valuation context is clearly explained.  
+            5. Conclude with a concise bullet-point summary of the main takeaways.  
+
+            Please output only the fully polished analysis (no internal notes), with in-text citations where you updated or confirmed a fact.
+            """
+
+# Response from deepseek r1 model. Drafting model
+def generate_response_with_deepseek(api_key, prompt):
     """Generate a response using the OpenRouter API."""
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -287,6 +252,7 @@ def generate_response(api_key, prompt):
             console.print(f"[bold red]Response:[/bold red] {e.response.text}")
         return "I apologize, but I encountered an error while generating the analysis. Please try again."
 
+# Response from Gemini model. Critic
 def generate_response_with_gemini(api_key, prompt):
     client = genai.Client(api_key=api_key)
 
@@ -307,64 +273,22 @@ def generate_response_with_gemini(api_key, prompt):
     )
     return response.text
 
-def search_articles(topic: str, max_results: int = 5):
-    """
-    Search DuckDuckGo for the topic, then fetch and parse the full text of each result.
-    Returns a list of dicts with 'title', 'url', and 'text'.
-    """
-    results = []
-    with DDGS() as ddgs:
-        for hit in ddgs.text(topic, max_results=max_results):
-            url = hit.get("href")
-            title = hit.get("title", "").strip()
-            if not url:
-                continue
-            try:
-                article = Article(url)
-                article.download()
-                article.parse()
-                text = article.text
-            except Exception:
-                # Fallback: simple HTTP + tag stripping
-                resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-                soup = BeautifulSoup(resp.text, "html.parser")
-                text = soup.get_text(" ", strip=True)
-            results.append({"title": title, "url": url, "text": text})
-    return results
+# Response to critique the current draft
+def generate_critique_feedback (api_key, company_name, topic, response):
+    client = genai.Client(api_key=api_key)
+    critique_prompt = generate_critique_prompt(company_name, topic, response)
+    critique_content = f'''
+                            Here is the draft you should critique and refine:
 
-def analyze_company_with_articles(api_key):
-    console.print("[bold green]Welcome to Company Analysis Bot![/bold green]")
-    console.print("This bot will provide a comprehensive analysis of any company.\n")
-    today = date.today()
-    while True:
-        company_name = console.input("[bold blue]Enter company name (or 'exit' to quit):[/bold blue] ")
-        
-        if company_name.lower() in ['exit', 'quit']:
-            console.print("\n[bold yellow]Goodbye![bold yellow]")
-            break
-        try:
-            console.print(f"\n[yellow]Analyzing {company_name}...[yellow]")
-
-            console.print("\n[bold green]Analysis:[/bold green]")
-
-            
-            topic_enums = list(Topic)
-            for topic in topic_enums:
-                search_query = f"Today is {today}. What is the {topic.label} for {company_name}"
-                articles = search_articles(search_query)
-
-                context = "\n\n".join(
-                    f"Title: {a['title']}\nURL: {a['url']}\n\n{a['text']}\n{'-'*80}"
-                    for a in articles
-                )
-                prompt = generate_topic_prompt(company_name, topic, context)
-                analysis = generate_response(api_key, prompt)
-                console.print(f"\n[bold green]{topic.label}[/bold green]", justify="center")
-                console.print(Markdown(analysis))
-                console.print()
-            
-        except Exception as e:
-            console.print(f"[bold red]Error:[/bold red] {str(e)}")  
+                            {response}
+                        '''
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction=critique_prompt, temperature = 0.2),
+        contents=critique_content,
+    )
+    return response.text
 
 def analyze_company(deepseek_api_key, gemini_api_key):
     console.print("[bold green]Welcome to Company Analysis Bot![/bold green]")
@@ -384,31 +308,17 @@ def analyze_company(deepseek_api_key, gemini_api_key):
             topic_enums = list(Topic)
             for topic in topic_enums:
                 prompt = generate_topic_prompt(company_name, topic)
-                draft_analysis = generate_response(deepseek_api_key, prompt)
-                critique_analysis = critique(gemini_api_key, company_name, topic, draft_analysis)
+                draft_analysis = generate_response_with_deepseek(deepseek_api_key, prompt)
+                critique_analysis = generate_critique_feedback(gemini_api_key, company_name, topic, draft_analysis)
+                # TODO ADD THE COMPARISON
                 console.print(f"\n[bold green]{topic.label}[/bold green]", justify="center")
-                console.print("\n[bold green]CompetitiveComparison[/bold green]", justify="center")
                 console.print(Markdown(critique_analysis))
+                console.print("\n[bold green]CompetitiveComparison[/bold green]", justify="center")
+                console.print(Markdown())
                 console.print()
             
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {str(e)}")  
-
-def critique (api_key, company_name, topic, response):
-    client = genai.Client(api_key=api_key)
-    critique_prompt = generate_critique_prompt(company_name, topic, response)
-    critique_content = f'''
-                            Here is the draft you should critique and refine:
-
-                            {response}
-                        '''
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        config=types.GenerateContentConfig(
-            system_instruction=critique_prompt, temperature = 0.2),
-        contents=critique_content,
-    )
-    return response.text
 
 def main():
     try:
