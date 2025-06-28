@@ -178,7 +178,6 @@ def generate_topic_prompt(company_name, topic):
             Finally, Amazon's valuation remains at a premium—trading near 34x trailing twelve-month earnings as of June 20,
             2025—making the stock particularly vulnerable to shifts in investor sentiment if revenue growth or operating-income guidance
             disappoints, as evidenced by a 3% share drop following the cautious Q2 outlook issued on May 1, 2025.
-
             
             Summary of Key Investment Risks:
 
@@ -212,6 +211,40 @@ def generate_critique_prompt(company_name, topic, draft_text):
 
             Please output only the fully polished analysis (no internal notes), with in-text citations where you updated or confirmed a fact.
             """
+
+def generate_comparison_prompt(company_name):
+    return f"""
+    You are a financial analyst comparing companies. Perform a detailed comparison between {company_name} and its 2-3 closest competitors.
+    
+    Include:
+    1. Market position comparison (market share, growth rates)
+    2. Financial metrics (P/E ratio, revenue growth, profit margins)
+    3. Competitive advantages/differentiators
+    4. Recent strategic moves (acquisitions, partnerships)
+    5. Valuation comparison (forward P/E, EV/EBITDA)
+    
+    Present the analysis in clear sections with subheadings. 
+    Conclude with a summary table comparing key metrics.
+    
+    Example format for Apple:
+    
+    ### Competitive Landscape: Apple vs. Major Peers
+    
+    **Market Position:**
+    - Apple: 55% smartphone market share in US (IDC Q2 2025)
+    - Samsung: 28% market share, stronger in Android segment
+    - Google Pixel: 12% share, growing in AI features
+    
+    **Financial Comparison (TTM):**
+    | Metric       | Apple | Samsung | Google |
+    |--------------|-------|---------|--------|
+    | P/E Ratio    | 28.5  | 12.3    | 24.1   |
+    | Revenue Growth | 7.2% | 3.8%    | 9.1%   |
+    
+    **Key Differentiators:**
+    - Apple's ecosystem lock-in vs. Samsung's hardware variety
+    - Google's AI-first approach...
+    """
 
 def generate_response(api_key, prompt):
     """Generate a response using the OpenRouter API."""
@@ -354,6 +387,7 @@ def analyze_company(deepseek_api_key, gemini_api_key):
                 draft_analysis = generate_response(deepseek_api_key, prompt)
                 critique_analysis = critique(gemini_api_key, company_name, topic, draft_analysis)
                 console.print(f"\n[bold green]{topic.label}[/bold green]", justify="center")
+                console.print("\n[bold green]CompetitiveComparison[/bold green]", justify="center")
                 console.print(Markdown(critique_analysis))
                 console.print()
             
