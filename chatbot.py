@@ -341,7 +341,7 @@ def analyze_company(deepseek_api_key, gemini_api_key):
             amount_of_cycles = 1
             # go through the cycle of critiquing and redrafting 
             # or until there is no incorrect information
-            while count < 1 and correction_output != "ALL GOOD":
+            while count < amount_of_cycles and correction_output != "ALL GOOD":
                 edit_prompt = generate_edit_prompt(company_name, response, correction_output)
                 response = generate_response_with_deepseek(deepseek_api_key, edit_prompt)
                 correction_output = generate_critique_feedback(gemini_api_key, company_name, response)
