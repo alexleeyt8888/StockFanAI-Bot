@@ -88,7 +88,7 @@ confJson = types.GenerationConfig(
 )
 confJsonCreative = types.GenerationConfig(
     response_mime_type="application/json",
-    temperature = 2,
+    temperature = 0,
     top_p = 0.98,
     top_k = 1000,
 )
@@ -137,7 +137,7 @@ def generate_topic_prompt(company_name, topic):
         You are a knowledgeable financial senior analyst with expertise in company analysis.
         Today is {today}. **You must use your search tool to find the most up-to-date and verifiable information available.**
         
-        **Your Task:** Write a cohesive paragraph in full sentences that is ~250-500 words about the **{topic.label}** of {company_name}.
+        **Your Task:** Write a cohesive paragraph in full sentences that is ~100-200 words about the **{topic.label}** of {company_name}.
         **Focus exclusively on this topic.** Do not include any headers or titles in your response.
 
         When discussing financial performance (e.g., revenue, earnings, margins), always cite **actual reported figures** from the latest earnings reports and the most current **analyst consensus or company guidance** for future periods, clearly distinguishing between them.
@@ -145,77 +145,8 @@ def generate_topic_prompt(company_name, topic):
         (Some topics or ideas you can talk about, but are not limited to are: {topic_to_list[topic.code]}).
         While writing this analysis, use financial terms precisely and provide valuation context.
         
-        Lastly, end your response with a brief bullet-pointed summary titled 'Summary of Key Takeaways:'. This summary should extract the main points you brought up in the paragraph.
+        Lastly, end your response with a brief bullet-pointed summary titled 'Summary of Key Takeaways:'. This summary should extract the main points you brought up in the ENTIRE RESPONSE.
         Don't add any extra follow up sentences after the summary.
-
-        Here is an example of a great response on the key stock drivers of Amazon on 6/22/2025:
-
-            Over the next twelve months, Amazon's share performance will be underpinned primarily by its
-            ongoing transformation into an an AI-first enterprise, with Amazon Web Services (AWS) at the vanguard
-            of both top-line growth and margin expansion. AWS is set to introduce a suite of next-generation offerings—ranging
-            from Aurora PostgreSQL version 17 and enhanced Bedrock foundation models to its quantum-compute "Ocelot" chip—that
-            should sustain its industry-leading ~33% operating margin and drive low-teens revenue growth through mid-2026.
-            Concurrently, Amazon's retail business is embedding advanced machine-learning algorithms across warehousing,
-            last-mile delivery, and inventory forecasting, which management expects will compress fulfillment costs by
-            approximately 50-75 basis points in FY 2026, helping offset softening unit demand in mature markets. In entertainment,
-            Prime Video's rollout of AI-powered dubbing and an expanded Upfront 2025 lineup will bolster ad-supported streaming
-            revenue and improve incremental ARPU per member.
-
-            Macroeconomic conditions remain broadly favorable: with the Federal Reserve signifying a pause in rate hikes and the
-            U.S. consumer savings rate hovering near its decade average, discretionary spending should continue to support Amazon's
-            retail GMV. That said, geopolitical risks—particularly imported-goods tariffs—and intensifying antitrust scrutiny in
-            both North America and the EU represent potential headwinds to margin trajectory. On the sell-side, 47 analysts peg AMZN's
-            twelve-month consensus price target at roughly $246, implying ~17% upside from current levels, with EPS forecasts of $6.30
-            in FY 2025 (up ~14% YoY) driving a target P/E of ~39x.
-
-            Finally, although capital expenditures surged past $100 billion in 2024 for AI and distribution capacity, management has
-            signaled more disciplined spending in 2025-2026, which could free up incremental free cash flow for continued share repurchases.
-            This disciplined capital allocation, combined with robust free cash flow conversion (above 20% of revenue), should support a
-            rising return on invested capital and narrow the valuation discount to peers—even absent a formal dividend policy.
-
-            Summary of Key Takeaways:
-            **AWS AI & Cloud Innovation:** New AI-driven services and Aurora v17 to sustain low-teens revenue growth and ~33% margins
-            **Retail Efficiency Gains:** Machine-learning in logistics to compress fulfillment costs by 50-75 bps in FY 2026
-            **Prime Video & Advertising:** AI dubbing and Upfront 2025 to enhance ARPU and ad revenues
-            **Macro & Geopolitical:** Fed pause and resilient consumer spending vs. tariff and antitrust risks
-            **Analyst Consensus:** ~$246 price target; FY 2025 EPS $6.30 (+14%), implying ~39x forward P/E
-            **Capital Allocation:** Evolving capex discipline to bolster free cash flow and fund share buybacks
-
-
-        Here is an example of a great response on the key investment risks of Amazon on 6/22/2025:
-
-            Amazon's investment profile, though underpinned by robust scale and diversified operations,
-            is shadowed by several material risks that could erode shareholder value. In the quarter ended March 31, 2025,
-            Amazon reported net sales of $155.7 billion—up 9% year-over-year—but this figure masks a $1.4 billion unfavorable impact
-            from foreign-exchange fluctuations, highlighting its sensitivity to currency volatility across Europe, Latin America, and Asia.
-            Supply-chain and cost headwinds remain acute: on its May 1, 2025 earnings call, management cautioned that elevated labor,
-            logistics, and infrastructure expenses, compounded by potential U.S.-China tariff increases up to 145% on consumer goods,
-            could compress retail and marketplace margins throughout 2025.
-
-            Competitive pressures are intensifying across both e-commerce and cloud segments.
-            In online retail, players such as Walmart, Alibaba, and fast-fashion newcomers like Temu continue to undercut pricing
-            and encroach on market share, while in cloud computing, Microsoft Azure—whose server products and cloud services
-            revenue grew 30% in the quarter ended June 30, 2024—and Google Cloud—up 30% in revenue in Q4 2024—has narrowed AWS's
-            dominance and pressure AWS to sustain above-market growth rates.
-
-            Regulatory and legal scrutiny further darkens the outlook. A Federal Trade Commission lawsuit alleging the use of
-            "dark patterns" to trick consumers into auto-renewing Prime memberships is set for a bench trial in June 2025,
-            and a broader antitrust suit accusing Amazon of abusing its marketplace monopoly will not reach trial until October 2026—risks
-            that could result in injunctive relief, fines, or mandated business-model changes.
-
-            Execution risks on capital-intensive initiatives, including the satellite-broadband Project Kuiper rollout and multi-billion-dollar
-            AWS AI infrastructure investments (such as Trainium 2 chips and Bedrock model expansion), may strain free cash flow if adoption lags expectations.
-            Finally, Amazon's valuation remains at a premium—trading near 34x trailing twelve-month earnings as of June 20,
-            2025—making the stock particularly vulnerable to shifts in investor sentiment if revenue growth or operating-income guidance
-            disappoints, as evidenced by a 3% share drop following the cautious Q2 outlook issued on May 1, 2025.
-
-            Summary of Key Takeaways:
-            **Currency & Geopolitical Exposure:** $1.4 billion FX headwind in Q1 2025; potential U.S.-China tariffs up to 145%.
-            **Cost & Supply-Chain Pressures:** Elevated labor, logistics, and infrastructure expenses squeezing margins.
-            **Competitive Intensity:** E-commerce undercut by Walmart, Alibaba, Temu; AWS challenged by Azure and Google Cloud.
-            **Regulatory & Legal Scrutiny:** FTC "dark patterns" trial in June 2025; broader antitrust suit trial in October 2026.
-            **Execution Risks:** High-cost projects (Project Kuiper, AI infrastructure) may under-deliver on returns.
-            **Valuation Sensitivity:** Trading at ~34x TTM earnings (as of June 20, 2025), shares fell 3% on cautious Q2 guidance.
 
     """
     return prompt_string
@@ -302,7 +233,7 @@ def generate_edit_prompt(company_name, old_output, correction_output):
         - Using the **corrected facts** and adhering to the **reasoning** exactly as stated in the summary.
         - Employing precise financial terminology and absolute dates (e.g. “Q1 FY2025,” “May 22, 2024”).
         - Providing smooth narrative transitions between sections.
-        - Concluding with a concise, bullet-point list of the most important takeaways after each section.
+        - Concluding with a concise, bullet-point list of the most important takeaways at the END OF THE SECTION.
 
         Output **only** the final analysis. Do not include any headers or titles.
     """
@@ -310,7 +241,7 @@ def generate_edit_prompt(company_name, old_output, correction_output):
 def generate_response(api_key: str, prompt: str) -> str:
     """
     Generates a response from the Google "gemini-2.5-flash" model.
-    Includes retry logic for quota errors.
+    Includes indefinite retry logic for quota errors.
 
     Args:
         api_key: Your Google Generative AI API key.
@@ -332,8 +263,8 @@ def generate_response(api_key: str, prompt: str) -> str:
         tools=[grounding_tool]
     )
 
-    MAX_RETRIES = 3 # Maximum number of retries for quota errors
-    for attempt in range(MAX_RETRIES):
+    attempt = 0
+    while True:
         try:
             response = model.models.generate_content(
                 model=model_name,
@@ -353,20 +284,18 @@ def generate_response(api_key: str, prompt: str) -> str:
                 if match:
                     delay = int(match.group(1))
                 
-                print(f"Quota exceeded (429) for {model_name}. API suggests retrying in {delay} seconds. Attempt {attempt + 1}/{MAX_RETRIES}...")
+                attempt += 1
+                print(f"Quota exceeded (429) for {model_name}. API suggests retrying in {delay} seconds. Attempt {attempt}...")
                 time.sleep(delay)
             else:
                 print(f"An unexpected error occurred during LLM call: {error_message}")
                 raise
-    
-    print(f"Failed to get a response from {model_name} after {MAX_RETRIES} attempts due to quota limits.")
-    raise Exception("Max retries exceeded for Gemini API due to quota limits.")
 
 def generate_critique_feedback (api_key, company_name, response_content, original_prompt):
     """
     Generates critique feedback from the Google "gemini-2.5-flash" model.
     Does NOT use web search capabilities via tools.
-    Includes retry logic for quota errors.
+    Includes indefinite retry logic for quota errors.
     """
     model_name = "gemini-2.5-flash"
     model = genai.Client()
@@ -388,8 +317,8 @@ def generate_critique_feedback (api_key, company_name, response_content, origina
         f"--- DRAFT ANALYSIS TO CRITIQUE ---\n{response_content}"
     )
     
-    MAX_RETRIES = 3
-    for attempt in range(MAX_RETRIES):
+    attempt = 0
+    while True:
         try:
             response = model.models.generate_content(
                 model=model_name,
@@ -408,14 +337,12 @@ def generate_critique_feedback (api_key, company_name, response_content, origina
                 if match:
                     delay = int(match.group(1))
 
-                print(f"Quota exceeded (429) for {model_name} (critique feedback). API suggests retrying in {delay} seconds. Attempt {attempt + 1}/{MAX_RETRIES}...")
+                attempt += 1
+                print(f"Quota exceeded (429) for {model_name} (critique feedback). API suggests retrying in {delay} seconds. Attempt {attempt}...")
                 time.sleep(delay)
             else:
                 print(f"An unexpected error occurred during critique LLM call: {error_message}")
                 raise
-    
-    print(f"Failed to get critique feedback from {model_name} after {MAX_RETRIES} attempts due to quota limits.")
-    raise Exception("Max retries exceeded for Gemini API (critique feedback) due to quota limits.")
 
 def apply_ansi_formatting(text: str) -> str:
     """
@@ -448,20 +375,41 @@ def analyze_single_topic(company_name: str, topic: Topic, gemini_api_key: str) -
     # 1. Generate rough draft
     prompt = generate_topic_prompt(company_name, topic)
     current_analysis = generate_response(gemini_api_key, prompt)
+
+    # It's also good practice to check if the initial analysis is valid
+    if not current_analysis:
+        print(f"Warning: Initial analysis generation for '{topic.label}' failed. Skipping topic.")
+        return (topic.label, "Analysis could not be generated for this topic.")
     
     # 2. Critique and Redraft loop
-    amount_of_cycles = 2
+    amount_of_cycles = 3
     count = 0
     while count < amount_of_cycles:
         correction_output = generate_critique_feedback(gemini_api_key, company_name, current_analysis, prompt)
+        
+        # <<< CHANGE: Implement the "retry once" logic >>>
+        # If the first attempt fails, try one more time.
+        if correction_output is None:
+            print(f"Warning: Critique generation for '{topic.label}' returned no output. Retrying once...")
+            correction_output = generate_critique_feedback(gemini_api_key, company_name, current_analysis, prompt)
+
+        # Now, check again. If it's still None after the retry, then break.
+        if correction_output is None:
+            print(f"Warning: Critique generation for '{topic.label}' failed after a retry. Using the last available analysis.")
+            break # Exit the critique loop and proceed with the current analysis
+        # <<< END OF CHANGE >>>
+
         if correction_output.strip().upper() == "ALL GOOD":
             break
         else:
             edit_prompt = generate_edit_prompt(company_name, current_analysis, correction_output)
             current_analysis = generate_response(gemini_api_key, edit_prompt)
+            # Add a check here as well in case the edit response fails
+            if not current_analysis:
+                 print(f"Warning: Edit generation for '{topic.label}' failed. Using the previous version.")
+                 break
             count += 1
             
-    # *** CHANGE: Return a tuple of (label, text) to separate content from formatting ***
     return (topic.label, current_analysis)
 
 
