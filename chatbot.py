@@ -9,22 +9,65 @@ from google.genai import types
 import multiprocessing
 import time
 import re
+import pathlib
+import json
+import functools
 
-# IMPORTANT: Set the start method for multiprocessing to 'spawn'
-# This must be called at the very beginning of the main execution block
-# to ensure a clean slate for child processes.
-# It helps avoid pickling issues with libraries that create unpicklable global state.
+
 try:
     multiprocessing.set_start_method('spawn', force=True)
 except RuntimeError:
-    # This can happen if set_start_method is called more than once
-    # or if it's already implicitly set in some environments.
-    # 'force=True' helps, but catching the error makes it robust.
     pass
 
+BASE_DIR = pathlib.Path(__file__).parent / "prompts"
 
-# Define the log file for LLM calls
+_INITIAL_GEN_TEMPLATE_PATH = BASE_DIR / "generate_initial_prompt.txt"
+_COMPARISON_TEMPLATE_PATH = BASE_DIR / "generate_comparison_prompt.txt"
+_CRITIQUE_TEMPLATE_PATH = BASE_DIR / "generate_critique_prompt.txt"
+_EDIT_TEMPLATE_PATH = BASE_DIR / "generate_edit_prompt.txt"
+
+
+_INITIAL_GEN_TEMPLATE = _INITIAL_GEN_TEMPLATE_PATH.read_text(encoding="utf-8")
+_COMPARISON_TEMPLATE = _COMPARISON_TEMPLATE_PATH.read_text(encoding="utf-8")
+_CRITIQUE_TEMPLATE = _CRITIQUE_TEMPLATE_PATH.read_text(encoding="utf-8")
+_EDIT_TEMPLATE = _EDIT_TEMPLATE_PATH.read_text(encoding="utf-8")
+
+today = date.today()
+
 LLM_LOG_FILE = "llm_calls.log"
+
+numOfRetries = 0
+
+def retry_on_json_error(max_retries=1000, delay_seconds=1):
+    """
+    A decorator that retries a function if it returns a dict with a 'raw_response' key,
+    which signals a JSON parsing failure.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            global numOfRetries
+            for attempt in range(max_retries):
+                numOfRetries += 1
+                result = func(*args, **kwargs)
+                # Check for the specific failure signal from the decorated function
+                if isinstance(result, dict) and "raw_response" in result:
+                    print(f"⚠️ Invalid JSON format detected on attempt {attempt + 1}/{max_retries}. Retrying in {delay_seconds}s...")
+                    # Don't wait on the last attempt before raising an error
+                    if attempt < max_retries - 1:
+                        time.sleep(delay_seconds)
+                else:
+                    # If the result is NOT the failure signal, it's a success.
+                    print("✅ Successfully received valid JSON.")
+                    return result
+            # If the loop completes, all retries have failed.
+            # Raise an exception to stop the program gracefully.
+            raise ValueError(
+                f"Failed to get valid JSON after {max_retries} attempts. "
+                f"Last raw response: {result.get('raw_response', 'N/A')}"
+            )
+        return wrapper
+    return decorator
 
 def log_llm_call(func_name: str, prompt: str, response_text: str, model_name: str, generation_config: types.GenerationConfig):
     """Logs details of an LLM call to a file."""
@@ -36,7 +79,7 @@ def log_llm_call(func_name: str, prompt: str, response_text: str, model_name: st
         "top_p": generation_config.top_p,
         "top_k": generation_config.top_k,
         "response_mime_type": generation_config.response_mime_type,
-        "tools_present": bool(getattr(generation_config, 'tools', False)) # Check if tools are configured, safely
+        "tools_present": bool(getattr(generation_config, 'tools', False))
     }
 
     log_entry = (
@@ -55,8 +98,6 @@ def log_llm_call(func_name: str, prompt: str, response_text: str, model_name: st
     except IOError as e:
         print(f"Error writing to LLM log file {LLM_LOG_FILE}: {e}")
 
-
-# Enum for the 8 topics that the analysis should be about
 class Topic(Enum):
     HISTORY = ("History", 1)
     PRODUCTS_INDUSTRY_MARKETSIZE = ("Products, Industry & Market Size", 2)
@@ -70,7 +111,6 @@ class Topic(Enum):
         self.label = label
         self.code = code
 
-# Accessing Gemini and OpenRouter API Key
 def setup_api():
     load_dotenv()
     open_router_api_key = os.getenv("OPENROUTER_API_KEY")
@@ -79,38 +119,7 @@ def setup_api():
         raise ValueError("Please set API key in your .env file")
     return gemini_api_key, open_router_api_key
 
-
-# --- REMOVED: grounding_tool_retrieval definition ---
-
-# Define the configuration objects globally without any search tools
-confJson = types.GenerationConfig(
-    response_mime_type="application/json",
-)
-confJsonCreative = types.GenerationConfig(
-    response_mime_type="application/json",
-    temperature = 0,
-    top_p = 0.98,
-    top_k = 1000,
-)
-
-# Configuration for non-JSON response without search, keeping your desired temperature
-confNoJsonSearch = types.GenerationConfig(
-    temperature=0.2,
-    # Tools parameter is removed here
-)
-# Configuration for JSON response without search, keeping your desired temperature
-confJsonSearch = types.GenerationConfig(
-    response_mime_type="application/json",
-    temperature=0.2,
-    # Tools parameter is removed here
-)
-
-
-# Prompt to generate for the LLM given the company and the topic. Will probably be looped through 8 times
-# once for each of the topic.
-def generate_topic_prompt(company_name, topic):
-    today = date.today()
-    # create a dictionary, mapping topic to the list of topic examples to help the LLM.
+def generate_initial_prompt(company_name, topic: Topic):
     topic_to_list = {
         1: """Business model evolution, Founding year, location, and founders,
               Early products or services, Major funding rounds or IPO, Acquisitions,
@@ -121,9 +130,10 @@ def generate_topic_prompt(company_name, topic):
         3: '''Revenue per major product or service, Revenue by region (Americas, EMEA, APAC), YoY shifts in those percentages
               Recurring vs. one-time revenue mix, Seasonality or quarter-to-quarter patterns, Effect of recent launches on mix''',
         4: '''Customer segments and distribution channels, Key accounts and their impact, Recent wins or losses
-              Satisfaction, retention, and churn metrics, Acquisition cost and lifetime value''',
+              Satisfaction, retention, and churn metrics, Acquisition cost and lifetime value. Please also identify top (10) customers
+              include them in your response''',
         5: '''Direct and indirect competitors, Feature, price, and distribution comparisons, moats or differentiators,
-              Competitors' vulnerabilities, Recent competitor moves (M&A, new products), Disruption risks (startups, substitutes)''',
+              Competitors' vulnerabilities, Recent competitor moves (M&A, new products), Disruption risks (startups, substitutes).''',
         6: '''Revenue growth trends, Gross and net margins, Cash flow dynamics, Debt ratios''',
         7: '''Upcoming product or roadmap milestones, Macro trends (interest rates, consumer spending), Analyst estimate revisions or consensus targets,
               Catalysts (earnings beats, partnerships), Capital allocation (buybacks, dividends), Regulatory or geopolitical tailwinds''',
@@ -131,125 +141,83 @@ def generate_topic_prompt(company_name, topic):
               Currency or geopolitical exposure, Execution risks on new initiatives, Valuation or sentiment shifts'''
     }
 
-    # IMPORTANT: Instructions to use search tool are KEPT as requested,
-    # even though the actual tool is removed from GenerationConfig.
-    prompt_string = f"""
-        You are a knowledgeable financial senior analyst with expertise in company analysis.
-        Today is {today}. **You must use your search tool to find the most up-to-date and verifiable information available.**
-        
-        **Your Task:** Write a cohesive paragraph in full sentences that is ~100-200 words about the **{topic.label}** of {company_name}.
-        **Focus exclusively on this topic.** Do not include any headers or titles in your response.
-
-        When discussing financial performance (e.g., revenue, earnings, margins), always cite **actual reported figures** from the latest earnings reports and the most current **analyst consensus or company guidance** for future periods, clearly distinguishing between them.
-        Use your search tool to find the latest data.
-        (Some topics or ideas you can talk about, but are not limited to are: {topic_to_list[topic.code]}).
-        While writing this analysis, use financial terms precisely and provide valuation context.
-        
-        Lastly, end your response with a brief bullet-pointed summary titled 'Summary of Key Takeaways:'. This summary should extract the main points you brought up in the ENTIRE RESPONSE.
-        Don't add any extra follow up sentences after the summary.
-
-    """
-    return prompt_string
+    return _INITIAL_GEN_TEMPLATE.format(
+        today=today,
+        topic_label=topic.label,
+        company_name=company_name,
+        topic_list=topic_to_list[topic.code]
+    )
 
 # Prompt to compare the company with its competitors
 def generate_comparison_prompt(company_name):
-    return f"""
-    You are a financial analyst comparing companies. Perform a detailed comparison between {company_name} and its 2-3 closest competitors.
-
-    Include:
-    1. Market position comparison (market share, growth rates)
-    2. Financial metrics (P/E ratio, revenue growth, profit margins)
-    3. Competitive advantages/differentiators
-    4. Recent strategic moves (acquisitions, partnerships)
-    5. Valuation comparison (forward P/E, EV/EBITDA)
-
-    Present the analysis in clear sections with subheadings.
-    Conclude with a summary table comparing key metrics.
-
-    Example format for Apple:
-
-    ### Competitive Landscape: Apple vs. Major Peers
-
-    **Market Position:**
-    - Apple: 55% smartphone market share in US (IDC Q2 2025)
-    - Samsung: 28% market share, stronger in Android segment
-    - Google Pixel: 12% share, growing in AI features
-
-    **Financial Comparison (TTM):**
-    | Metric       | Apple | Samsung | Google |
-    |--------------|-------|---------|--------|
-    | P/E Ratio    | 28.5  | 12.3    | 24.1   |
-    | Revenue Growth | 7.2% | 3.8%    | 9.1%   |
-
-    **Key Differentiators:**
-    - Apple's ecosystem lock-in vs. Samsung's hardware variety
-    - Google's AI-first approach...
-    """
+    return _COMPARISON_TEMPLATE.format(
+        company_name=company_name,
+    )
 
 def generate_critique_prompt(company_name):
+    list_of_topics = ["History", "Products, Industry & Market Size", "Revenue Breakdown", 
+    "Customers", "Competitive Landscape", "Financial Performance", "Stock Drivers",
+    "Investment Risks"]
+    return _CRITIQUE_TEMPLATE.format(
+        today=today,
+        company_name=company_name,
+        list_of_topics=list_of_topics
+    )
+
+def generate_edit_prompt(company_name, old_output, corrections_array):
     """
-    Generates a more demanding and specific critique prompt for the LLM.
+    corrections_array is expected to be a list of dicts:
+      [{"original": "...", "corrected": "...", "reasoning": "..."}, ...]
+    If a raw_response dict is passed (e.g. {"raw_response": "..."}) we embed that text instead.
     """
-    today = date.today()
-    # IMPORTANT: Instructions to use search tool are KEPT as requested,
-    # even though the actual tool is removed from GenerationConfig.
-    return f"""
-        You are an exceptionally meticulous and skeptical senior equity research analyst. Your primary role is to fact-check and enhance a draft analysis of {company_name}. Today is {today}.
-        You will be given the **Original Prompt** that was used to generate a draft, followed by the **Draft Analysis** itself.
+    if not corrections_array:
+        correction_output_string = "No corrections provided."
+        return _EDIT_TEMPLATE.format(today=today,  old_output=old_output, company_name=company_name, correction_output=correction_output_string)
 
-        Your tasks are:
-        1.  **Adherence to Instructions:** First, assess if the **Draft Analysis** fully adheres to all instructions in the **Original Prompt** (e.g., word count, tone, format, specific points to cover, inclusion of valuation context, staying on topic).
-        2.  **Rigorous Fact-Checking:** Scrutinize every number, statistic, date, and proper noun in the draft. **Use your search tool to verify these against the latest available public information.** Pay special attention to financial metrics (revenue, EPS, margins), market data, and historical dates.
-        3.  **Contextual Analysis:** Identify statements that lack crucial context. Is a growth rate impressive compared to competitors? Is a valuation high for its sector? Flag any missing context.
-        4.  **Eliminate Vague Language:** Challenge and correct imprecise terms like "recently," "significant," or "some" with specific data points where possible.
+    # If we got the error wrapper
+    if isinstance(corrections_array, dict) and "raw_response" in corrections_array:
+        correction_output_string = corrections_array["raw_response"]
+        return _EDIT_TEMPLATE.format(today = today, old_output=old_output, company_name=company_name, correction_output=correction_output_string)
 
-        For each issue you find, prepare one entry in a **Corrections Summary** list using this exact format:
-        - **Original:** "<The exact original sentence>"
-        - **Corrected:** "<The updated, fully accurate sentence with precise terminology.>"
-        - **Reasoning:** "<A brief explanation of why the correction is necessary (e.g., 'Outdated data,' 'Fails to provide valuation context as requested by prompt,' 'Imprecise language').>"
+    # If it's a dict keyed by topics -> lists, try to normalize it (handle both forms)
+    if isinstance(corrections_array, dict) and any(isinstance(v, list) for v in corrections_array.values()):
+        # flatten if {topic: [corrections]}
+        # get first list found
+        for v in corrections_array.values():
+            if isinstance(v, list):
+                corrections_list = v
+                break
+    else:
+        corrections_list = corrections_array
 
-        Example of a good correction:
-        - **Original:** "NVIDIA has seen significant growth in its data center segment."
-        - **Corrected:** "For the fiscal year ended January 28, 2024, NVIDIA's Data Center segment reported revenue of $47.5 billion, a 217% increase year-over-year."
-        - **Reasoning:** "Imprecise language. Replaced 'significant growth' with a specific, verifiable data point and timeframe for accuracy and impact."
+    formatted_corrections = []
+    for i, correction in enumerate(corrections_list, 1):
+        original_sentence = correction.get('original', 'N/A')
+        corrected_sentence = correction.get('corrected', 'N/A')
+        reasoning = correction.get('reasoning', 'N/A')
 
-        Do not output the original draft. Only output the **Corrections Summary** list.
-        If the entire analysis is accurate, well-contextualized, and precise, output the single phrase: "ALL GOOD"
-        """
+        correction_block = (
+            f"Correction #{i}:\n"
+            f'  - Original Snippet: "{original_sentence}"\n'
+            f'  - Corrected Snippet: "{corrected_sentence}"\n'
+            f"  - Reasoning for Change: {reasoning}"
+        )
+        formatted_corrections.append(correction_block)
 
-def generate_edit_prompt(company_name, old_output, correction_output):
-    return f"""
-        You are a senior equity research analyst and publication-ready writer.
+    correction_output_string = "\n\n".join(formatted_corrections)
+    return _EDIT_TEMPLATE.format(
+        today = today,
+        old_output=old_output,
+        company_name=company_name,
+        correction_output=correction_output_string
+    )
 
-        Here is a draft of the company analysis of {company_name}:
-        {old_output}
 
-        You've just received the following Corrections Summary for a draft company analysis of {company_name}:
-        {correction_output}
-
-        Your task is to integrate these corrections into a fully polished, cohesive analysis.
-
-        Make sure you are :
-        - Using the **corrected facts** and adhering to the **reasoning** exactly as stated in the summary.
-        - Employing precise financial terminology and absolute dates (e.g. “Q1 FY2025,” “May 22, 2024”).
-        - Providing smooth narrative transitions between sections.
-        - Concluding with a concise, bullet-point list of the most important takeaways at the END OF THE SECTION.
-
-        Output **only** the final analysis. Do not include any headers or titles.
-    """
+confNoJsonSearch = types.GenerationConfig(
+    temperature=0.2,
+)
 
 def generate_response(api_key: str, prompt: str) -> str:
-    """
-    Generates a response from the Google "gemini-2.5-flash" model.
-    Includes indefinite retry logic for quota errors.
-
-    Args:
-        api_key: Your Google Generative AI API key.
-        prompt: The prompt to send to the model.
-
-    Returns:
-        The generated text from the model.
-    """
     model_name = "gemini-2.5-flash"
     model = genai.Client()
 
@@ -271,10 +239,26 @@ def generate_response(api_key: str, prompt: str) -> str:
                 contents=prompt,
                 config=configX,
             )
-            response_text = response.text
+            response_text = response.text.strip()
+
+            match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            
+            # if match:
+            #     json_string = match.group(0)
+            #     try:
+            #         # Attempt to parse the extracted, clean string
+            #         critique_json = json.loads(json_string)
+            #     except json.JSONDecodeError:
+            #         # The extracted string was still not valid JSON
+            #         print("⚠️ Could not parse the extracted JSON string.")
+            #         critique_json = {"raw_response": response_text}
+            # else:
+            #     # Could not find anything that looks like a JSON object
+            #     print("⚠️ No JSON object found in the response text.")
+            #     critique_json = {"raw_response": response_text}
 
             # Log the LLM call with the config object directly
-            log_llm_call("generate_response", prompt, response_text, model_name, confNoJsonSearch)
+            log_llm_call("generate_response", prompt, response_text, model_name, configX)
             return response_text
         except Exception as e:
             error_message = str(e)
@@ -291,44 +275,96 @@ def generate_response(api_key: str, prompt: str) -> str:
                 print(f"An unexpected error occurred during LLM call: {error_message}")
                 raise
 
-def generate_critique_feedback (api_key, company_name, response_content, original_prompt):
+@retry_on_json_error()
+def generate_critique_feedback(api_key, company_name, sorted_results_dict):
     """
-    Generates critique feedback from the Google "gemini-2.5-flash" model.
-    Does NOT use web search capabilities via tools.
-    Includes indefinite retry logic for quota errors.
+    Sends the critique prompt and robustly extracts JSON from the model response.
+    `sorted_results_dict` should be a mapping: { "Topic Name": "draft text", ... }
     """
+    client = genai.Client(api_key=api_key)           # <-- ensure API key is used
     model_name = "gemini-2.5-flash"
-    model = genai.Client()
 
-    # Define the grounding tool
-    grounding_tool = types.Tool(
-        google_search=types.GoogleSearch()
-    )
+    # Define search grounding tool
+    grounding_tool = types.Tool(google_search=types.GoogleSearch())
 
-    # Configure generation settings
     configX = types.GenerateContentConfig(
-        tools=[grounding_tool]
+        tools=[grounding_tool],
     )
-    
+
     critique_instructions = generate_critique_prompt(company_name)
-    full_prompt_for_critique = (
-        f"{critique_instructions}\n\n"
-        f"--- ORIGINAL PROMPT ---\n{original_prompt}\n\n"
-        f"--- DRAFT ANALYSIS TO CRITIQUE ---\n{response_content}"
+
+    # Build prompt
+    full_prompt_for_critique = critique_instructions + "\n\n"
+    for topic_name, response_content in sorted_results_dict.items():
+        full_prompt_for_critique += (
+            f"--- TOPIC: {topic_name} ---\n"
+            f"{response_content.strip()}\n\n"
+        )
+
+    full_prompt_for_critique += (
+        "Return your response strictly as valid JSON following the output format described above. "
+        "Do not add any commentary, markdown, or notes."
     )
-    
+
     attempt = 0
     while True:
         try:
-            response = model.models.generate_content(
+            response = client.models.generate_content(
                 model=model_name,
                 contents=full_prompt_for_critique,
-                config=configX,
+                config=configX
             )
-            response_text = response.text
 
-            log_llm_call("generate_critique_feedback", full_prompt_for_critique, response_text, model_name, confNoJsonSearch)
-            return response_text
+            # Try safe extraction of text (SDKs return different shapes)
+            response_text = None
+            if hasattr(response, "text") and response.text:
+                response_text = response.text
+            else:
+                # fallback: try to find nested structure (adjust if your SDK shape differs)
+                try:
+                    # many SDKs put model output in response.output[0].content[0].text
+                    response_text = response.output[0].content[0].text
+                except Exception:
+                    response_text = repr(response)
+
+            response_text = response_text.strip()
+
+            # Remove markdown code fences if present (```json ... ```)
+            # Also remove a single leading "```json" or "```" and trailing "```"
+            response_text = re.sub(r"^```(?:json)?\s*", "", response_text, flags=re.IGNORECASE)
+            response_text = re.sub(r"\s*```$", "", response_text)
+
+            # Extract the first JSON object/braced block if there is extra text
+            match = re.search(r"(\{.*\})", response_text, re.DOTALL)
+            if match:
+                json_string = match.group(1)
+                try:
+                    critique_json = json.loads(json_string)
+                except json.JSONDecodeError:
+                    # Last-ditch attempts to "fix" common issues:
+                    # - replace smart-quotes / single quotes -> double quotes
+                    safe = json_string.replace("“", "\"").replace("”", "\"").replace("'", "\"")
+                    # remove trailing commas like `,]` or `,}`
+                    safe = re.sub(r",\s*(\]|\})", r"\1", safe)
+                    try:
+                        critique_json = json.loads(safe)
+                    except Exception:
+                        print("⚠️ Could not parse the extracted JSON string after cleanup.")
+                        critique_json = {"raw_response": response_text}
+            else:
+                # No braced JSON found — return raw_response for debugging
+                print("⚠️ No JSON object found in the response text.")
+                critique_json = {"raw_response": response_text}
+
+            log_llm_call(
+                "generate_critique_feedback",
+                full_prompt_for_critique,
+                response_text,
+                model_name,
+                configX
+            )
+            return critique_json
+
         except Exception as e:
             error_message = str(e)
             if "429" in error_message and "RESOURCE_EXHAUSTED" in error_message:
@@ -336,13 +372,13 @@ def generate_critique_feedback (api_key, company_name, response_content, origina
                 match = re.search(r"'retryDelay':\s*'(\d+)s'", error_message)
                 if match:
                     delay = int(match.group(1))
-
                 attempt += 1
-                print(f"Quota exceeded (429) for {model_name} (critique feedback). API suggests retrying in {delay} seconds. Attempt {attempt}...")
+                print(f"Quota exceeded (429). Retrying in {delay} seconds. Attempt {attempt}...")
                 time.sleep(delay)
             else:
-                print(f"An unexpected error occurred during critique LLM call: {error_message}")
+                print(f"❌ Unexpected error in critique call: {error_message}")
                 raise
+
 
 def apply_ansi_formatting(text: str) -> str:
     """
@@ -366,52 +402,54 @@ def apply_ansi_formatting(text: str) -> str:
         
     return "\n".join(formatted_lines)
 
+# def analyze_single_topic(company_name: str, topic: Topic, gemini_api_key: str) -> tuple[str, str]:
+#     """
+#     Generates, critiques, and refines the analysis for a single topic.
+#     Returns a tuple containing the topic label and the final refined analysis string.
+#     """
+#     # 1. Generate rough draft
+#     prompt = generate_topic_prompt(company_name, topic)
+#     current_analysis = generate_response(gemini_api_key, prompt)
 
-def analyze_single_topic(company_name: str, topic: Topic, gemini_api_key: str) -> tuple[str, str]:
-    """
-    Generates, critiques, and refines the analysis for a single topic.
-    Returns a tuple containing the topic label and the final refined analysis string.
-    """
-    # 1. Generate rough draft
-    prompt = generate_topic_prompt(company_name, topic)
-    current_analysis = generate_response(gemini_api_key, prompt)
-
-    # It's also good practice to check if the initial analysis is valid
-    if not current_analysis:
-        print(f"Warning: Initial analysis generation for '{topic.label}' failed. Skipping topic.")
-        return (topic.label, "Analysis could not be generated for this topic.")
+#     # It's also good practice to check if the initial analysis is valid
+#     if not current_analysis:
+#         print(f"Warning: Initial analysis generation for '{topic.label}' failed. Skipping topic.")
+#         return (topic.label, "Analysis could not be generated for this topic.")
     
-    # 2. Critique and Redraft loop
-    amount_of_cycles = 3
-    count = 0
-    while count < amount_of_cycles:
-        correction_output = generate_critique_feedback(gemini_api_key, company_name, current_analysis, prompt)
+#     # 2. Critique and Redraft loop
+#     amount_of_cycles = 3
+#     count = 0
+#     while count < amount_of_cycles:
+#         correction_output = generate_critique_feedback(gemini_api_key, company_name, current_analysis, prompt)
         
-        # <<< CHANGE: Implement the "retry once" logic >>>
-        # If the first attempt fails, try one more time.
-        if correction_output is None:
-            print(f"Warning: Critique generation for '{topic.label}' returned no output. Retrying once...")
-            correction_output = generate_critique_feedback(gemini_api_key, company_name, current_analysis, prompt)
+#         # <<< CHANGE: Implement the "retry once" logic >>>
+#         # If the first attempt fails, try one more time.
+#         if correction_output is None:
+#             print(f"Warning: Critique generation for '{topic.label}' returned no output. Retrying once...")
+#             correction_output = generate_critique_feedback(gemini_api_key, company_name, current_analysis, prompt)
 
-        # Now, check again. If it's still None after the retry, then break.
-        if correction_output is None:
-            print(f"Warning: Critique generation for '{topic.label}' failed after a retry. Using the last available analysis.")
-            break # Exit the critique loop and proceed with the current analysis
-        # <<< END OF CHANGE >>>
+#         # Now, check again. If it's still None after the retry, then break.
+#         if correction_output is None:
+#             print(f"Warning: Critique generation for '{topic.label}' failed after a retry. Using the last available analysis.")
+#             break # Exit the critique loop and proceed with the current analysis
+#         # <<< END OF CHANGE >>>
 
-        if correction_output.strip().upper() == "ALL GOOD":
-            break
-        else:
-            edit_prompt = generate_edit_prompt(company_name, current_analysis, correction_output)
-            current_analysis = generate_response(gemini_api_key, edit_prompt)
-            # Add a check here as well in case the edit response fails
-            if not current_analysis:
-                 print(f"Warning: Edit generation for '{topic.label}' failed. Using the previous version.")
-                 break
-            count += 1
+#         if correction_output.strip().upper() == "ALL GOOD":
+#             break
+#         else:
+#             edit_prompt = generate_edit_prompt(company_name, current_analysis, correction_output)
+#             current_analysis = generate_response(gemini_api_key, edit_prompt)
+#             # Add a check here as well in case the edit response fails
+#             if not current_analysis:
+#                  print(f"Warning: Edit generation for '{topic.label}' failed. Using the previous version.")
+#                  break
+#             count += 1
             
-    return (topic.label, current_analysis)
+#     return (topic.label, current_analysis)
 
+def initial_gen (company_name: str, topic: Topic, gemini_api_key: str):
+    prompt = generate_initial_prompt(company_name, topic)
+    return generate_response(gemini_api_key, prompt)
 
 def analyze_company(gemini_api_key: str, open_router_api_key: str):
     print("Welcome to Company Analysis Bot!")
@@ -422,33 +460,108 @@ def analyze_company(gemini_api_key: str, open_router_api_key: str):
             print("\nGoodbye!")
             break
         
+        start_time = time.perf_counter()
+        
         print(f"\nGenerating a comprehensive analysis for {company_name}. This may take a few minutes...")
         try:
             topics = list(Topic)
-            
+
+            amount_of_cycles = 3
+
+            count = 0
+            sorted_results = {}
             ordered_futures = []
             with ThreadPoolExecutor(max_workers=8) as exe:
                 for topic in topics:
-                    future = exe.submit(analyze_single_topic, company_name, topic, gemini_api_key)
-                    ordered_futures.append((topic.code, future))
-
-                sorted_results = []
+                    # print(topic);
+                    # print("____")
+                    future = exe.submit(initial_gen, company_name, topic, gemini_api_key)
+                    ordered_futures.append((topic.label, future))
                 for code, future in sorted(ordered_futures):
-                    sorted_results.append(future.result())
+                    sorted_results[code] = future.result()
 
-            # *** CHANGE: Centralized and structured output formatting ***
-            print(f"\n--- Final Comprehensive Analysis for {company_name} ---")
-            for topic_label, analysis_text in sorted_results:
+            while (count < amount_of_cycles):
+#                 sorted_results ={"Investment Risks": '''NVIDIA faces several investment risks despite its dominant position in the AI chip market. Geopolitical tensions, particularly between the U.S. and China, pose a significant headwind, evidenced by the $4.5 billion charge incurred in Q1 FY2026 due to excess H20 inventory following new U.S. export licensing requirements for China, which also impacted the GAAP gross margin to 60.5% (non-GAAP 61.0%). NVIDIA estimates a further $8.0 billion loss in H20 revenue for Q2 FY2026, for which it has guided revenue of $45.0 billion, plus or minus 2%. Regulatory scrutiny is intensifying, with antitrust investigations by the French Competition Authority and the U.S. Department of Justice examining NVIDIA's market dominance and proprietary CUDA software, alongside China's recent inquiries into potential "backdoors" in H20 chips. Competitive pressures are rising as rivals like Amazon offer aggressively priced AI chips, and major cloud providers develop in-house alternatives, potentially eroding NVIDIA's market share and affecting its high gross margins, which were 71.3% non-GAAP excluding the H20 charge in Q1 FY2026. Furthermore, NVIDIA's premium valuation, with a P/E ratio of 60.1, reflects high growth expectations, making it susceptible to significant corrections if growth decelerates or market sentiment shifts.
+
+# Summary of Key Takeaways:
+# *   Geopolitical tensions, particularly U.S.-China export restrictions, directly impact NVIDIA's revenue and gross margins, as seen with the $4.5 billion Q1 FY2026 charge related to H20 chips and the projected $8.0 billion revenue loss in Q2 FY2026 from China.
+# *   Increased regulatory and antitrust scrutiny from multiple jurisdictions (U.S., France, China) presents legal and operational risks due to NVIDIA's market dominance and proprietary technology.
+# *   Competitive pressures from existing rivals and large tech companies developing in-house AI chips could lead to price wars and market share erosion, potentially impacting profitability.
+# *   NVIDIA's high valuation multiples indicate that its stock is priced for continued robust growth, making it vulnerable to market corrections if growth expectations are not met.'''}
+
+                critique_feedback = generate_critique_feedback(gemini_api_key, company_name, sorted_results)
+
+                # critique_feedback = {'Investment Risks': [{'original': 'NVIDIA faces several investment risks despite its dominant position in the AI chip market. Geopolitical tensions, particularly between the U.S. and China, pose a significant headwind, evidenced by the $4.5 billion charge incurred in Q1 FY2026 due to excess H20 inventory following new U.S. export licensing requirements for China, which also impacted the GAAP gross margin to 60.5% (non-GAAP 61.0%).', 'corrected': 'NVIDIA faces several investment risks despite its dominant position in the AI chip market. Geopolitical tensions, particularly between the U.S. and China, pose a significant headwind, evidenced by the $4.5 billion charge incurred in Q1 FY2026 (ended April 27, 2025) due to excess H20 inventory and purchase obligations following new U.S. export licensing requirements for China, which also impacted the GAAP gross margin to 60.5% (non-GAAP 61.0%). [11, 21, 26, 28]', 'reasoning': "Added the end date for Q1 FY2026 for more precise context and added 'purchase obligations' to accurately reflect the nature of the charge as reported by NVIDIA. Added citations."}, {'original': 'NVIDIA estimates a further $8.0 billion loss in H20 revenue for Q2 FY2026, for which it has guided revenue of $45.0 billion, plus or minus 2%.', 'corrected': 'NVIDIA estimates a further $8.0 billion loss in H20 revenue for Q2 FY2026, for which it has guided revenue of $45.0 billion, plus or minus 2%. [11, 17, 22, 26, 28]', 'reasoning': 'Added citations to verify the revenue loss estimate and guidance.'}, {'original': 'Regulatory scrutiny is intensifying, with antitrust investigations by the French Competition Authority and the U.S. Department of Justice examining NVIDIA\'s market dominance and proprietary CUDA software, alongside China\'s recent inquiries into potential "backdoors" in H20 chips.', 'corrected': 'Regulatory scrutiny is intensifying, with active antitrust investigations by the French Competition Authority and the U.S. Department of Justice examining NVIDIA\'s market dominance and proprietary CUDA software, alongside China\'s recent inquiries (as of late July/early August 2025) into potential "backdoors" in H20 chips. [3, 5, 7, 8, 10, 12, 13, 16, 20, 24]', 'reasoning': "Added 'active' for clarity on the ongoing nature of investigations and specified the timeframe for China's inquiries for more precision. Added citations."}, {'original': "Competitive pressures are rising as rivals like Amazon offer aggressively priced AI chips, and major cloud providers develop in-house alternatives, potentially eroding NVIDIA's market share and affecting its high gross margins, which were 71.3% non-GAAP excluding the H20 charge in Q1 FY2026.", 'corrected': "Competitive pressures are rising as rivals like Amazon offer aggressively priced AI chips (e.g., Inferentia and Trainium), and major cloud providers (e.g., Google, Microsoft, Amazon) develop in-house alternatives (e.g., Google TPUs, Microsoft Azure Maia, Amazon Trainium), potentially eroding NVIDIA's market share and affecting its high gross margins, which were 71.3% non-GAAP excluding the H20 charge in Q1 FY2026. [11, 18, 19, 21, 25, 27, 28, 29, 30, 31, 33, 34]", 'reasoning': 'Provided specific examples of aggressively priced chips (Inferentia, Trainium) and in-house alternatives (Google TPUs, Microsoft Azure Maia, Amazon Trainium) for better clarity and context. Added citations.'}, {'original': "Furthermore, NVIDIA's premium valuation, with a P/E ratio of 60.1, reflects high growth expectations, making it susceptible to significant corrections if growth decelerates or market sentiment shifts.", 'corrected': "Furthermore, NVIDIA's premium valuation, with a trailing twelve-month (TTM) P/E ratio of approximately 57.6 as of August 8, 2025, reflects high growth expectations, making it susceptible to significant corrections if growth decelerates or market sentiment shifts. [2, 4, 6, 9]", 'reasoning': 'Corrected the P/E ratio to reflect the most current and accurate TTM P/E (approx. 57.6) as of the specified date (August 8, 2025) and clarified it as TTM, enhancing precision. Added citations.'}]}
+
+                # print(critique_feedback);
+
+                edit_futures = {}
+
+                with ThreadPoolExecutor(max_workers=8) as exe:
+                    for topic_name, corrections_array in critique_feedback.items():
+                        original_draft = sorted_results.get(topic_name)
+
+                        if original_draft and isinstance(corrections_array, list):
+                            edit_prompt = generate_edit_prompt(company_name, original_draft, corrections_array)
+                            # Submit the job and store the future object
+                            future = exe.submit(generate_response, gemini_api_key, edit_prompt)
+                            edit_futures[topic_name] = future
+                        else:
+                             print(f"Skipping edit for '{topic_name}' due to invalid data.")
+#                         new_draft = """NVIDIA faces several investment risks despite its dominant position in the AI chip market. Geopolitical tensions, particularly between the U.S. and China, pose a significant headwind, evidenced by the $4.5 billion charge incurred in Q1 FY2026 (ended April 27, 2025) due to excess H20 inventory and purchase obligations following new U.S. export licensing requirements for China, which also impacted the GAAP gross margin to 60.5% (non-GAAP 61.0%). NVIDIA estimates a further $8.0 billion loss in H20 revenue for Q2 FY2026, for which it has guided revenue of $45.0 billion, plus or minus 2%. Regulatory scrutiny is intensifying, with active antitrust investigations by the French Competition Authority and the U.S. Department of Justice examining NVIDIA's market dominance and proprietary CUDA software, alongside China's recent inquiries (as of late July/early August 2025) into potential "backdoors" in H20 chips. Competitive pressures are rising as rivals like Amazon offer aggressively priced AI chips (e.g., Inferentia and Trainium), and major cloud providers (e.g., Google, Microsoft, Amazon) develop in-house alternatives (e.g., Google TPUs, Microsoft Azure Maia, Amazon Trainium), potentially eroding NVIDIA's market share and affecting its high gross margins, which were 71.3% non-GAAP excluding the H20 charge in Q1 FY2026. Furthermore, NVIDIA's premium valuation, with a trailing twelve-month (TTM) P/E ratio of approximately 57.6 as of August 8, 2025, reflects high growth expectations, making it susceptible to significant corrections if growth decelerates or market sentiment shifts.
+
+# Summary of Key Takeaways:
+# *   Geopolitical tensions, particularly U.S.-China export restrictions, directly impact NVIDIA's revenue and gross margins, as seen with the $4.5 billion Q1 FY2026 charge (ended April 27, 2025) related to H20 chips and purchase obligations, and the projected $8.0 billion revenue loss in Q2 FY2026 from China.
+# *   Increased regulatory and antitrust scrutiny from multiple jurisdictions (U.S., France, China) presents legal and operational risks due to NVIDIA's market dominance and proprietary technology, including recent inquiries into potential "backdoors" in H20 chips.
+# *   Competitive pressures from existing rivals offering aggressively priced AI chips (e.g., Amazon Inferentia and Trainium) and large tech companies developing in-house AI chips (e.g., Google TPUs, Microsoft Azure Maia, Amazon Trainium) could lead to price wars and market share erosion, potentially impacting profitability.
+# *   NVIDIA's high valuation, with a trailing twelve-month (TTM) P/E ratio of approximately 57.6 as of August 8, 2025, indicates that its stock is priced for continued robust growth, making it vulnerable to market corrections if growth expectations are not met.
+# """
+
+                for topic_name, future in edit_futures.items():
+                    new_draft = future.result()
+                    sorted_results[topic_name] = new_draft
+                    # print(f"-> Edits for '{topic_name}' completed.")
+                    
+
+
+                count = count + 1
+
+            
+
+            
+
+            # print(f"\n--- Final Comprehensive Analysis for {company_name} ---")
+            for topic in Topic:
+                topic_label = topic.label
+                # Look up the analysis text from the dictionary using the correct label.
+                analysis_text = sorted_results.get(topic_label)
+
                 # Print a clear, differentiating header for each topic
                 print(f"\n\n{'='*70}")
                 print(f"TOPIC: {topic_label.upper()}")
                 print(f"{'='*70}\n")
                 
-                # Apply formatting and print the analysis for the topic
-                formatted_text = apply_ansi_formatting(analysis_text)
-                print(formatted_text)
+                if analysis_text:
+                    # Apply formatting and print the analysis for the topic
+                    formatted_text = apply_ansi_formatting(analysis_text)
+                    print(formatted_text)
+                else:
+                    # This is a fallback in case a result for a topic was never generated.
+                    print("Analysis for this topic could not be found.")
 
-            print(f"\n\n--- End of Analysis for {company_name} ---")
+
+            end_time = time.perf_counter()
+            duration_seconds = end_time - start_time
+            minutes, seconds = divmod(duration_seconds, 60)
+            print(f"\n{'='*70}")
+            if minutes >= 1:
+                print(f"Total Time: {int(minutes)} minutes and {seconds:.2f} seconds.")
+            else:
+                print(f"Total Time: {duration_seconds:.2f} seconds.")
+            print(f"{'='*70}")
+
+            print(f"\nRetries: {numOfRetries}")
+
 
         except Exception as e:
             print(f"Error during company analysis: {str(e)}")

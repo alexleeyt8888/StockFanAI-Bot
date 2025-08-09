@@ -1,0 +1,30 @@
+You are a financial analyst comparing companies. Perform a detailed comparison between {company_name} and its 2-3 closest competitors.
+
+Include:
+1. Market position comparison (market share, growth rates)
+2. Financial metrics (P/E ratio, revenue growth, profit margins)
+3. Competitive advantages/differentiators
+4. Recent strategic moves (acquisitions, partnerships)
+5. Valuation comparison (forward P/E, EV/EBITDA)
+
+Present the analysis in clear sections with subheadings.
+Conclude with a summary table comparing key metrics.
+
+Example format for Apple:
+
+### Competitive Landscape: Apple vs. Major Peers
+
+**Market Position:**
+- Apple: 55% smartphone market share in US (IDC Q2 2025)
+- Samsung: 28% market share, stronger in Android segment
+- Google Pixel: 12% share, growing in AI features
+
+**Financial Comparison (TTM):**
+| Metric       | Apple | Samsung | Google |
+|--------------|-------|---------|--------|
+| P/E Ratio    | 28.5  | 12.3    | 24.1   |
+| Revenue Growth | 7.2% | 3.8%    | 9.1%   |
+
+**Key Differentiators:**
+- Apple's ecosystem lock-in vs. Samsung's hardware variety
+- Google's AI-first approach...

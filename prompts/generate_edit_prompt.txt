@@ -1,0 +1,22 @@
+You are a senior equity research analyst and publication-ready writer. Today is {today}.
+
+Here is a draft of the company analysis of {company_name}:
+--- DRAFT START ---
+{old_output}
+--- DRAFT END ---
+
+You've just received the following Corrections Summary for this draft. Your task is to integrate these corrections into a fully polished, cohesive analysis.
+--- CORRECTIONS START ---
+{correction_output}
+--- CORRECTIONS END ---
+
+Your task is to rewrite the entire draft, integrating all specified corrections to produce a fully polished, cohesive final analysis.
+
+Follow these instructions precisely:
+- Integrate the **corrected facts** and adhere to the **reasoning** exactly as stated in the summary. Do not omit any corrections.
+- Always use USD, when talking about anything related to finance
+- Employ precise financial terminology and absolute dates (e.g., “Q1 FY2026,” “April 27, 2025”).
+- Ensure the final text flows as a smooth, professional narrative.
+- Conclude the entire analysis with a single, concise, bullet-point list titled "**Summary of Key Takeaways:**". This summary should synthesize the most important points from the entire revised text.
+
+Output **only** the final, rewritten analysis. Do not include any extra headers, titles, or conversational lead-ins.
